@@ -1,0 +1,55 @@
+# Instructions for coding agents
+
+**This directory contains a trust model, an architecture and a plan. There is no code here
+yet** - no package, no `pyproject.toml`, no runnable command. Do not scaffold one before
+wave 1 of `D:\code\PORTFOLIO.md` schedules it.
+
+## Read in this order
+
+1. `TRUST-MODEL.md` - adversaries, what each control layer defeats, and what it explicitly
+   does not. This is the authority on security properties.
+2. `PLAN.md` - components, objects, the acquisition loop, the path interface, and what is
+   deliberately not built.
+3. `ROADMAP.md` - obligations, each naming the adversary it closes, with a named test.
+
+When they disagree, the trust model wins on security properties and `ROADMAP.md` wins on
+protocol facts. Neither wins on sequencing: that is `D:\code\PORTFOLIO.md`.
+
+## Specification discipline
+
+`rfclib` is the source of truth for what the documents say. Two traps specific to this
+project, both already paid for once:
+
+- **RFC 6962 is Obsolete.** It was Experimental and was obsoleted by **RFC 9162 (CT version
+  2.0, 2021-12), which is also Experimental** - CT has never been an IETF Standard. The
+  deployed wire format at logs is version 1, so v1 text stays operationally relevant, but a
+  citation must say which version it means. Check with `rfclib.info("RFC9162")` and
+  `rfclib.errata("RFC9162")` before writing a row, not after.
+- **Chrome's log list is licensed, not free to use.** `rfclib` will not tell you this: the
+  acceptable-use policy permits monitor and auditor use, forbids driving CT enforcement in
+  non-Chrome clients without written permission, and reserves unannounced changes. Legal
+  review is a launch gate.
+
+Use `rfclib.read("RFC9162§2.1.1", view="normative")` for the consistency-proof wording
+rather than reproducing it from memory, and `rfclib.cite(...)` in the commit message so the
+citation is checkable.
+
+## Invariants the code must not trade away
+
+These are the ones an agent is most likely to "simplify" into a bug:
+
+1. **No ambient trust.** Never `load_default_certs()` or `set_default_verify_paths()`; never
+   read proxy or certificate-store environment variables; every client built with
+   environment trust disabled, because the defaults honour `HTTPS_PROXY` and `SSL_CERT_FILE`.
+2. **Authenticity comes only from a log signature over a pinned key.** A successful fetch, a
+   valid TLS chain and an HTTP 200 are not evidence that content is genuine.
+3. **Verify over stored original bytes.** Never over a re-encoding.
+4. **Tree heads never shrink.** A smaller head than the pinned one stops the run and pages;
+   it is not clamped, corrected or retried away.
+5. **Absence needs corroboration.** No single path may ever support a "not in the log" claim.
+6. **Every object carries a receipt.** An observation without a path, vantage and peer
+   identity is not publishable data.
+7. **Never silently downgrade.** A failed DNSSEC or TLSA check moves data to
+   `UNAUTHENTICATED`, which is unpublishable - it does not fall back with a log line.
+8. **Never claim "all certificates".** Unlogged issuance is invisible to CT by construction;
+   the limit is stated in trust model §9 and obligation `cl.claims-discipline` protects it.

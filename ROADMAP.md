@@ -253,7 +253,11 @@ percent-encoded in the query string, because the `+` in one of the two arrived a
 ## Known costs
 
 One half-year Google log held about 242 million entries when measured on 2026-11-05, so
-entries and certificates are different counts by design. Per-log rate limits and whether public archives
+entries and certificates are different counts by design. **That 242 million does not reconcile with the heads
+signed today** - Xenon2027h1 reports 751,798,397 and Argon2027h1 900,273,683 - and the difference is not
+explained here, only flagged: `HARVEST-PLAN.md` treats `tree_size` as leaves because that is what it is, and if
+the 242 million measured something else, the sentence above should say so. Per-log rate limits and whether public
+archives
 cover every currently usable log remain unmeasured; each is a phase-2 blocker rather than a footnote, and
 `TRUST-MODEL.md` section 11 tracks them. The cardinality of the `cA=TRUE` layer is no longer one of them, and
 what it turned out to be is that the question needed a second sample from the same log. `cl.cag-graph` measured
@@ -269,10 +273,13 @@ there operator and log change along with position; `tests/test_midwindow.py` kee
 a confounded number cannot be pooled with a clean one. Both samples are small - 64 and 236 entries out of
 hundreds of millions - and no rate is claimed from either. Google answers 32 entries per
 `get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
-the walk's request count: the Nimbus2027 head stored in these fixtures is **877,250,294** entries, so roughly
-**27.4 million requests for that log alone**. An earlier figure of about 7.6 million written on this line does
-not follow from either the tree size or the page cap, and is corrected - a claim about walk cost has to be
-derived from the two numbers actually measured, not remembered.
+the walk's request count - and **the page size is per operator, not per protocol**: measured 2026-11-05 by
+asking one log per operator for 4,096 entries, **Google and TrustAsia serve 32 while Cloudflare, DigiCert and
+Sectigo serve 256** (the sweep is recorded in `ctspy/docs/interop.md`). Nimbus2027 is a Cloudflare log, so its
+**877,250,294**-entry head is roughly **3.4 million requests**, while the same arithmetic on a Google half-year
+(Xenon2027h1, 751,798,397 entries at 32) is **23.5 million**. Two figures sat on this line before that
+measurement: about 7.6 million, which followed from neither input, and then 27.4 million, which divided a
+Cloudflare tree by Google's page size. Both were arithmetic done on remembered constants.
 
 `INCIDENT-CT-FORENSICS.md` records what happened when a real incident — the eMudhra intermediate key
 compromise — was put to this tooling, and it settled two things that any future forensics ask has to live

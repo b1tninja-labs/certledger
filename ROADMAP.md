@@ -194,8 +194,11 @@ what has been read of it, which is the entire content of I5.
 
 What this row does **not** close: the phase 3 wiring of these states into a UI, and producing
 `UNAUTHENTICATED` from DANE or DNSSEC failure. Here `authenticated` is an input the caller sets from what the
-path itself validated; making that determination requires `namespy`, which does not exist yet. The state, and
-everything it forbids, is in place for when it does.
+path itself validated; making that determination requires a DANE lookup in `namespy`. That project **is**
+implemented - codec, iterative resolver, opt-in DNSSEC validation, DoT and DoH - and this document previously
+said it "does not exist yet", which was wrong and is corrected here. What it lacks is the validation path: TLSA
+is present as a record type (`namespy/enums.py:260`, RFC 6698 section 3) and nothing consumes it as DANE. The
+state, and everything it forbids, is in place for when it does.
 
 Two rules came out of the measurement and are now load-bearing in the code. A precert entry is attributed to
 the leaf's `issuer_key_hash`, never to `chain[0]`: across 494 production precerts in five logs, 173 had a
@@ -266,7 +269,10 @@ there operator and log change along with position; `tests/test_midwindow.py` kee
 a confounded number cannot be pooled with a clean one. Both samples are small - 64 and 236 entries out of
 hundreds of millions - and no rate is claimed from either. Google answers 32 entries per
 `get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
-the walk's request count: about 7.6 million requests for one such half-year log.
+the walk's request count: the Nimbus2027 head stored in these fixtures is **877,250,294** entries, so roughly
+**27.4 million requests for that log alone**. An earlier figure of about 7.6 million written on this line does
+not follow from either the tree size or the page cap, and is corrected - a claim about walk cost has to be
+derived from the two numbers actually measured, not remembered.
 
 `INCIDENT-CT-FORENSICS.md` records what happened when a real incident — the eMudhra intermediate key
 compromise — was put to this tooling, and it settled two things that any future forensics ask has to live

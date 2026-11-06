@@ -1,7 +1,6 @@
 """certledger: independent CT acquisition, with the ambient trust removed.
 
-Phase 0 only so far - trust model L1. The pieces here are the ones that remove adversary A2, the
-attacker who needs access to this process's environment and nothing else:
+Phase 0 removed adversary A2, the attacker who needs this process's environment and nothing else:
 
 - `anchors` - the only certificates this process will trust, each with a date and a reason.
 - `context` - a TLS context that cannot contain anything else, and never reads the system store.
@@ -9,15 +8,20 @@ attacker who needs access to this process's environment and nothing else:
 - `path` - a configured path that emits a receipt for every fetch, including the failures.
 - `der` - verification over stored octets (I3).
 
-`ROADMAP.md` names the test that closes each obligation; nothing here claims a row that has no
-passing test behind it.
+Phase 1 added `keys` (pin registry, origin-keyed) and `heads` (monotonic tree heads, consistency, inclusion
+against an accepted head). Phase 2 added the parts that consume entries rather than heads: `entries` (the
+dedupe store, where an entry and a certificate are different counts by design) and `cag` (the CA-layer graph
+and its reconciliation arithmetic). `ROADMAP.md` names the test that closes each obligation; nothing here
+claims a row that has no passing test behind it.
 """
 
 from __future__ import annotations
 
 from .anchors import Anchor, AnchorSet, pem_to_der
+from .cag import CaGraph, CaNode, Reconciliation
 from .context import build_client_context
 from .der import StoredDocument, capture, verify_over_stored
+from .entries import EntryConflict, EntryRecord, EntryStats, EntryStore
 from .errors import (
     AmbientTrust,
     AnchorSetProblem,
@@ -38,8 +42,14 @@ __all__ = [
     "Anchor",
     "AnchorSet",
     "AnchorSetProblem",
+    "CaGraph",
+    "CaNode",
     "CertLedgerError",
     "DirectTransport",
+    "EntryConflict",
+    "EntryRecord",
+    "EntryStats",
+    "EntryStore",
     "Exchange",
     "FetchFailure",
     "FetchPath",
@@ -49,6 +59,7 @@ __all__ = [
     "LogPin",
     "PeerAddressMismatch",
     "Receipt",
+    "Reconciliation",
     "Resolver",
     "StoredDocument",
     "SystemResolver",

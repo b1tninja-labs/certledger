@@ -1,9 +1,10 @@
 # Instructions for coding agents
 
-**Phase 0 landed on 2026-11-05.** This directory is a package now - `certledger/`, `anchors/`,
-`tests/` and a `pyproject.toml` - because `PORTFOLIO.md` section 7 schedules "certledger phases 0
-and 1" inside wave 1, which is the gate this file used to place on scaffolding. Phase 1 has not been
-written; `ROADMAP.md` says exactly what is open and what it waits on.
+**Phase 0 landed on 2026-11-05, and phases 1 and part of 2 have landed since.** This directory is a package -
+`certledger/`, `anchors/`, `keys/`, `tests/` and a `pyproject.toml` - because `PORTFOLIO.md` section 7
+schedules "certledger phases 0 and 1" inside wave 1. `ROADMAP.md` says exactly what is closed, what is open,
+and what it waits on; the fetch layer still waits on a human anchor decision, and the package still does not
+reach the network itself.
 
 The rest of this file is unchanged, because none of it is affected by there being code.
 

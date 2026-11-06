@@ -41,14 +41,16 @@ them, which is the reason that library exists.
 
 Two things this does **not** claim. The shipped `keys/pins.toml` is empty: the real production keys in
 `tests/fixtures/log-pins.toml` are test material, and trust model section 8 reserves a key decision
-for a named human, so the deployment ring stays empty until one is recorded. And nothing here fetches:
-these modules verify artifacts that are handed to them, so the acquisition loop that produces those
-artifacts over an asserted path (`cl.walk-budget`, `cl.multi-path`) is still open, as is everything
-that consumes entries rather than heads (`cl.dedupe`, `cl.cag-graph`).
+for a named human, so the deployment ring stays empty until one is recorded. And nothing in the package
+fetches: these modules verify artifacts that are handed to them, so the acquisition loop that produces
+those artifacts over an asserted path (`cl.walk-budget`, `cl.multi-path`) is still open. What does fetch is
+`tools/corpus.py`, a capture tool outside the package, and its output says so - `transport.verified` is
+false because there is no anchor decision to verify TLS against, and the bytes are believed anyway, because
+a published key signed a tree that contains them.
 
-| `cl.dedupe` | RFC 6962 section 2.1 | [ ] | `store/entries` | `test_entry_count_differs_from_cert_count` |
+| `cl.dedupe` | RFC 6962 section 2.1 | [x] | `store/entries` | `test_entry_count_differs_from_cert_count` |
 | `cl.walk-budget` | Model I5, section 8 | [ ] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
-| `cl.cag-graph` | - | [ ] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
+| `cl.cag-graph` | - | [x] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
 | `cl.multi-path` | Model I7 | [ ] | `acquire/fanout` | `test_absence_needs_two_path_classes` |
 | `cl.states` | Model section 8 | [ ] | `store/state` | `test_divergent_is_not_publishable` |
 | `cl.keyproof-consume` | keyproof PLAN, ladder rung 1 | [ ] | `verify/denylist` | `test_chain_with_listed_spki_is_flagged` |
@@ -101,10 +103,46 @@ structures, which `PORTFOLIO.md` section 6 assigns to `ctspy` - a Tier 2 project
 yet. Either `ctspy` moves up, or the Merkle and transcript code is written here and later extracted.
 That is a sequencing call for the human, so it is recorded rather than assumed.
 
+**Phase 2 has started with the two rows that consume entries.** `entries.py` gives an Entry the identity
+PLAN.md specifies - SHA-256 over the TBSCertificate - and it is tested on a prefix rather than a sample: 236
+entries of Cloudflare Nimbus2027 whose root is proved consistent with the tree head the log signed under a
+pinned key (`tools/corpus.py` writes `tests/fixtures/entry-corpus.json`; the fixture is 1.5 MB of bytes two
+operators served). Those 236 entries establish **235 identities** - one certificate is in that log twice, and
+two more certificates also appear in Sectigo Tiger2027h1 - so the row's claim is measured rather than
+assumed. It is also smaller than the sentence implies: across 23 operational logs, the largest overlap
+between two logs' *verifiable* prefixes was 2 certificates, because a prefix is a log's oldest content and
+static-merge logs inherit disjoint sources. Cross-log duplication is real and rare in the part of a log a
+monitor can prove anything about.
+
+The CA graph over the same prefix draws 236 edges from 4 issuing keys, and **8 entries claim `cA=TRUE`** -
+3.4% of the sample. That is one data point against PLAN.md's unmeasured Tier A cardinality, and nowhere near
+an estimate for a 242-million-entry half-year.
+
+Two rules came out of the measurement and are now load-bearing in the code. A precert entry is attributed to
+the leaf's `issuer_key_hash`, never to `chain[0]`: across 494 production precerts in five logs, 173 had a
+Precertificate Signing Certificate first in their chain, and the corpus contains 13 such entries, each of
+which the graph must place under the real CA. And a precert entry's *identity* comes from the leaf's
+`TBSCertificate` rather than the stored precertificate, because RFC 6962 section 3.2 paragraph 9 rewrites the
+issuer and Authority Key Identifier of that stored copy - keying on it would split one certificate into
+several identities, which is the failure this row exists to prevent. Both are documented in
+`ctspy/docs/interop.md`, which also records the two wrong answers held before these were right.
+
+What the corpus does not settle: no entry in it embeds an SCT list, so the case where one issuance has two
+TBSCertificate spellings - with and without that extension - is untested on production bytes here.
+`has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it, so folding them stays a
+decision made against a number. The walk itself remains gated on `cl.walk-budget`, `cl.multi-path`, and the
+anchor decision.
+
+
 ## Known costs
+
 
 One half-year Google log held about 242 million entries when measured on 2026-11-05, so
 entries and certificates are different counts by design. Per-log rate limits, the real
 cardinality of the `cA=TRUE` layer, and whether public archives cover every currently
 usable log are all unmeasured; each is a phase-2 blocker rather than a footnote, and
-`TRUST-MODEL.md` section 11 tracks them.
+`TRUST-MODEL.md` section 11 tracks them. The first two data points on the CA layer landed with
+`cl.cag-graph`: 8 of 236 entries in a verified Nimbus2027 prefix carry `cA=TRUE`, and 236 entries drew edges
+from 4 issuing keys - a ratio, not an estimate, and recorded as such. Google answers 32 entries per
+`get-entries` request however many are asked for (RFC 6962 section 4.6 permits this), which sets the walk's
+request count: about 7.6 million requests for one such half-year log.

@@ -29,7 +29,14 @@ from .errors import (
     PeerAddressMismatch,
     Unreachable,
 )
-from .heads import HeadRecord, HeadStore, TreeShrank
+from .heads import (
+    HeadRecord,
+    HeadStore,
+    MissingConsistencyProof,
+    TreeShrank,
+    UnacceptedHead,
+    UnknownHead,
+)
 from .keys import KeyRing, LogPin, UnknownLogKey, verify_sth
 from .path import Exchange, FetchFailure, FetchPath, TrustClass, Vantage
 from .receipt import Receipt
@@ -73,6 +80,7 @@ __all__ = [
     "LogObservation",
     "LogPin",
     "LogWalk",
+    "MissingConsistencyProof",
     "PathOutcome",
     "PeerAddressMismatch",
     "PublicationRefused",
@@ -85,6 +93,8 @@ __all__ = [
     "Transport",
     "TreeShrank",
     "TrustClass",
+    "UnacceptedHead",
+    "UnknownHead",
     "UnknownLogKey",
     "Unreachable",
     "Vantage",

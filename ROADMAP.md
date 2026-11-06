@@ -233,13 +233,15 @@ artifact and `cl.dane` needs `namespy`. Neither should be invented ahead of its 
 an artifact that does not exist yet decides its interface by guesswork, which is what `PORTFOLIO.md` section 7
 exists to prevent.
 
-One thing the retraction opened, which belongs here rather than in the table because it changes what the
-corpus *contains* and not any obligation's tier or dependency. `tools/corpus.py` captured prefixes only, on
-the belief that no deployed log serves an inclusion proof by hash; every log asked has now served one that
-verifies (see `ctspy/docs/interop.md`). So an entry found in a second log no longer has to stay positional
-evidence: the capture could ask `get-proof-by-hash` for it and record a proof against that log's own signed
-head, which would strengthen `cl.dedupe`'s and `cl.cag-graph`'s cross-log claims from matched positions to
-proved inclusion.
+One thing the retraction has already paid for. `tools/corpus.py` had captured prefixes only, on the belief that
+no log serves an inclusion proof by hash; every log asked has since served one that verifies (see
+`ctspy/docs/interop.md`). The tool now asks it: `--prove-only` binds each peer entry to the head stored in that
+peer's own block, after re-verifying that head against the key beside it, and the two Sectigo entries in the
+corpus carry audit paths that `tests/test_entries.py` re-derives offline through `HeadStore.verify_inclusion`.
+That gives `cl.inclusion` its first production anchor and turns the cross-log half of `cl.dedupe` from
+positional matching into proved inclusion. It also caught a bug of its own: a leaf hash must be
+percent-encoded in the query string, because the `+` in one of the two arrived as a space and the log answered
+400 - a refusal that reads exactly like an endpoint that does not work.
 
 ## Known costs
 

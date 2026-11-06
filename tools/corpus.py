@@ -21,12 +21,16 @@ What the tool records, and what it declines to claim:
 - The HTTP transport is **not** verified: there is no anchor decision yet, so `transport.verified` is false.
   That is the trust model working rather than a gap in it - the bytes are genuine because a pinned key signed
   a tree containing them, not because TLS said so.
-- Entries that a duplicate search turned up in a second log are kept with `verified: false`, because they are
-  positional evidence of cross-log duplication and not proved inclusion: this tool matched them by position
-  and never asked either log for a path. That is a gap in the capture, not a limit on the deployment. A test
-  that treated them as proven would be reading the fixture wrong.
+- Entries that a duplicate search turned up in a second log begin as positional evidence and are then asked
+  for a real inclusion path: `get-proof-by-hash` at the tree size that block's own stored head names, checked
+  against that head's root, with the head itself re-verified against the key stored beside it first. A peer
+  block is marked `verified` only when *every* entry in it carries a path that verifies offline, so
+  `verified: false` still means "do not cite this as proved". It just gets rarer now that the request is
+  asked correctly: this tool once assumed no log would answer it, because it had asked a path no RFC defines.
 
-Run it with `python tools/corpus.py`; it writes `tests/fixtures/entry-corpus.json`.
+Run it with `python tools/corpus.py`; it writes `tests/fixtures/entry-corpus.json`. `--prove-only` adds those
+inclusion paths to a fixture that already exists and changes nothing else, which is how a capture made before
+the corrected request gets finished without disturbing the prefix or any number drawn from it.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ import hashlib
 import json
 import pathlib
 import sys
+import urllib.parse
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -159,6 +164,96 @@ def head_block(tree_head: ctsth.SignedTreeHeadV1, key: EcdsaKey, source: str) ->
     }
 
 
+def head_from_block(stored: dict, origin: str) -> ctsth.SignedTreeHeadV1:
+    """A stored head block, re-verified against the key stored beside it.
+
+    A proof bound to a tree size that nobody attests is worth nothing, so before asking for any path this
+    re-checks the head the log block already carries: an ECDSA signature over these exact octets, from the key
+    that hashes to the log id named in the same block. Doing it here rather than trusting `key_source` is what
+    lets a reader months later tell a stale fixture from a tampered one.
+    """
+    head = ctsth.SignedTreeHeadV1(
+        timestamp=int(stored["timestamp"]),
+        tree_size=int(stored["tree_size"]),
+        root_hash=bytes.fromhex(stored["root_hash"]),
+        signature=base64.b64decode(stored["signature"]),
+    )
+    key = EcdsaKey.from_spki(base64.b64decode(stored["key_spki"]))
+    ctsth.verify(head, key)
+    if key.log_id.hex() != stored["log_id"]:
+        raise RuntimeError(f"{origin}: stored key hashes to a log id the block does not name")
+    return head
+
+
+def inclusion_block(origin: str, leaf: bytes, head: ctsth.SignedTreeHeadV1) -> dict | None:
+    """A path from one leaf to `head`'s root, or None if the log will not give one that verifies.
+
+    RFC 6962 section 4.5 defines `get-proof-by-hash` with `hash` and `tree_size` as its inputs and
+    `leaf_index` plus `audit_path` as its outputs. The tree size asked for is the one the stored head names,
+    not the log's current size: binding a path to a head that post-dates the capture would make the fixture
+    claim something about a tree it never saw.
+    """
+    digest = merkle.leaf_hash(leaf)
+    # Quote the hash. Of the two peer hashes this pass asked about, the one containing a `+` came back 400
+    # while the one containing `/` and `=` was served: a query string reads `+` as a space, which is no longer
+    # base64, so the log was right to refuse it. Un-quoted base64 looks like an endpoint that does not work,
+    # which is the mistake this repository has already made once with a different URL.
+    encoded = urllib.parse.quote(base64.b64encode(digest).decode(), safe="")
+    body = get_json(f"{origin}/ct/v1/get-proof-by-hash?hash={encoded}&tree_size={head.tree_size}")
+    path = tuple(base64.b64decode(node) for node in body.get("audit_path", []))
+    index = int(body["leaf_index"])
+    if not merkle.verify_inclusion(digest, index, head.tree_size, path, head.root_hash):
+        return None
+    return {
+        "leaf_index": index,
+        "tree_size": head.tree_size,
+        "audit_path": [node.hex() for node in path],
+        "verifies": True,
+    }
+
+
+def prove_peers(path: pathlib.Path) -> int:
+    """Bind each peer entry to the head already stored in its block, without re-capturing anything.
+
+    Re-running the capture would move the prefix and every count the documentation draws from it; the proofs
+    are additive, so this loads the fixture, asks each log for a path to the tree size its own stored head
+    names, verifies it, and writes it back. A block's `verified` becomes true only when *every* entry in it
+    carries a verifying path - one unproved entry keeps the whole block unproved, because a flag that means
+    "mostly proved" means nothing to a reader deciding what it may cite.
+
+    The prefix half is left alone deliberately: its root is proved consistent with a signed head, which binds
+    all of its entries at the cost of one request.
+    """
+    document = json.loads(path.read_text(encoding="utf-8"))
+    unproved = []
+    for block in document["logs"]:
+        if "prefix" in block:
+            continue
+        head = head_from_block(block["head"], block["origin"])
+        proved = 0
+        for entry in block["entries"]:
+            leaf = base64.b64decode(entry["leaf_input"])
+            try:
+                got = inclusion_block(block["origin"], leaf, head)
+            except Exception as exc:
+                print(f"  {block['origin']} entry {entry['index']}: {type(exc).__name__}: {exc}")
+                got = None
+            if got is not None and got["leaf_index"] == entry["index"]:
+                entry["inclusion"] = got
+                proved += 1
+            else:
+                entry.pop("inclusion", None)
+                unproved.append(f"{block['origin']}#{entry['index']}")
+        block["verified"] = proved > 0 and proved == len(block["entries"])
+        print(
+            f"  {block['origin']}: {proved}/{len(block['entries'])} peer entries proved by inclusion"
+        )
+    document["proved"] = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"wrote {path} ({path.stat().st_size} bytes); unproved: {unproved or 'none'}")
+    return 0
+
+
 def read_block(
     origin: str, wanted: int
 ) -> tuple[list[tuple[int, bytes, bytes, bytes]], ctsth.SignedTreeHeadV1, EcdsaKey, str]:
@@ -234,8 +329,11 @@ def primary_block(origin, rows, tree_head, key, source, size, proof) -> dict:
 def peer_block(origin, rows, tree_head, key, source, shared: set[bytes]) -> dict:
     """Another log's entries whose identities the verified prefix also carries.
 
-    Positional evidence, not proved inclusion: these put a real certificate behind the cross-log half of
-    `cl.dedupe`, and `verified: false` is what stops a reader treating them as more than that.
+    Written with `verified: false`, because at this point they are only positional evidence: they put a real
+    certificate behind the cross-log half of `cl.dedupe`, and the flag stops a reader treating them as more
+    than that. `prove_peers` then asks each log for an inclusion path to the head stored in this very block
+    and flips the flag only if every entry verifies, so a false flag here means the request was refused, not
+    that it was never made.
     """
     kept = [row for row in rows if row[3] in shared]
     print(f"  {origin}: {len(kept)} certificates shared with the prefix")
@@ -263,7 +361,14 @@ def main() -> int:
     )
     parser.add_argument("--entries", type=int, default=256, help="how many prefix entries to read")
     parser.add_argument("--floor", type=int, default=64, help="smallest prefix to keep regardless")
+    parser.add_argument(
+        "--prove-only",
+        action="store_true",
+        help="add get-proof-by-hash paths to the existing fixture without re-capturing it",
+    )
     args = parser.parse_args()
+    if args.prove_only:
+        return prove_peers(args.out / "entry-corpus.json")
 
     origin = args.origin.rstrip("/")
     print(f"reading {args.entries} entries from {origin}")
@@ -305,16 +410,18 @@ def main() -> int:
         },
         "logs": blocks,
     }
-    args.out.mkdir(parents=True, exist_ok=True)
-    path = args.out / "entry-corpus.json"
-    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote {path} ({path.stat().st_size} bytes)")
     if not proof:
         print(
             "refusing to write a corpus whose prefix is not proved consistent with the signed head"
         )
         return 1
-    return 0
+    args.out.mkdir(parents=True, exist_ok=True)
+    path = args.out / "entry-corpus.json"
+    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"wrote {path} ({path.stat().st_size} bytes)")
+    # A fresh capture proves its peers too: a fixture that could be proved and wasn't is indistinguishable
+    # from one whose proofs were refused, which is the distinction the whole cross-log half rests on.
+    return prove_peers(path)
 
 
 if __name__ == "__main__":

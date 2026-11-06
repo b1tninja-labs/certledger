@@ -3,8 +3,9 @@
 `cl.dedupe`'s named test runs against bytes captured from Cloudflare's Nimbus2027 - a 236-entry prefix whose
 root has been proved consistent with the tree head the log signed, so the corpus is a piece of a real tree
 rather than a bag of plausible certificates. Two of those entries are the same certificate in the same log,
-and two more certificates appear in Sectigo's Tiger2027h1 as well; both are real, and both are the reason
-counting entries and counting certificates have to be different operations.
+and two more certificates appear in Sectigo's Tiger2027h1 as well, each of those peer entries now proved into
+Sectigo's own tree by an audit path to a head Sectigo signed; both are real, and both are the reason counting
+entries and counting certificates have to be different operations.
 
 The synthetic cases are here for the paths production did not exercise in this sample, and each says so in
 its own docstring: an entry whose leaf cannot be read, and a log that serves two different leaves at one
@@ -18,14 +19,23 @@ import dataclasses
 import hashlib
 import json
 import pathlib
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import pytest
-from _support import a_receipt
+from _support import a_receipt, write_pins
 from ctspy import entry as ctentry
 from ctspy import merkle
+from ctspy import sth as ctspy_sth
 
-from certledger import EntryConflict, EntryRecord, EntryStore, Receipt
+from certledger import (
+    EntryConflict,
+    EntryRecord,
+    EntryStore,
+    HeadStore,
+    KeyRing,
+    Receipt,
+    UnknownHead,
+)
 
 CORPUS = json.loads(
     (pathlib.Path(__file__).parent / "fixtures" / "entry-corpus.json").read_text("utf-8")
@@ -108,12 +118,84 @@ def test_entry_count_differs_from_cert_count() -> None:
         )
 
 
+def _accepted_peer_head(peer: dict[str, Any], tmp_path: pathlib.Path) -> tuple[HeadStore, bytes]:
+    """The peer log's stored head, accepted through the same gate every other head passes.
+
+    Nothing here is trusted because the fixture asserts it: the key beside the head is pinned, `verify_sth`
+    checks the signature over these octets, and the head enters the store as a bootstrap record. From that
+    point on, an inclusion proof that does not bind to the accepted root has nowhere to land.
+    """
+    stored = peer["head"]
+    head = ctspy_sth.SignedTreeHeadV1(
+        timestamp=int(stored["timestamp"]),
+        tree_size=int(stored["tree_size"]),
+        root_hash=bytes.fromhex(stored["root_hash"]),
+        signature=base64.b64decode(stored["signature"]),
+    )
+    ring = KeyRing.load(
+        write_pins(
+            tmp_path, [(stored["log_id"], peer["origin"], base64.b64decode(stored["key_spki"]))]
+        )
+    )
+    store = HeadStore()
+    record = store.accept(head, ring, origin=peer["origin"], receipt=a_receipt("tool:corpus"))
+    return store, record.log_id
+
+
+def test_a_peer_entry_is_proved_into_its_own_log_by_an_audit_path(tmp_path: pathlib.Path) -> None:
+    """The cross-log half of the corpus is proved, not merely matched by position.
+
+    These bytes arrived from Sectigo over a transport this project does not trust, and no head from that
+    fetch was accepted when it arrived. What makes them evidence is recomputed here from the fixture alone: a
+    pinned key signs a head, the head is accepted, and the stored path runs from this leaf to that accepted
+    root. `HeadStore.verify_inclusion` is the only door used, because a path checked against a root the log
+    merely asserted is a proof with no anchor - the thing that method exists to refuse.
+
+    It is also the first production inclusion proof `cl.inclusion` has ever been checked against. Before the
+    endpoint was asked correctly there was nothing here to check, and the row's test was synthetic.
+    """
+    for peer in PEERS:
+        store, log_id = _accepted_peer_head(peer, tmp_path)
+        for entry in peer["entries"]:
+            proof = entry["inclusion"]
+            leaf_hash = merkle.leaf_hash(base64.b64decode(entry["leaf_input"]))
+            path = tuple(bytes.fromhex(node) for node in proof["audit_path"])
+            assert proof["leaf_index"] == entry["index"]
+            assert store.verify_inclusion(
+                log_id, leaf_hash, proof["leaf_index"], path, tree_size=proof["tree_size"]
+            ), f"{peer['origin']}#{entry['index']} is not proved by the path stored beside it"
+            tampered = (path[0][:-1] + bytes([path[0][-1] ^ 1]), *path[1:])
+            assert not store.verify_inclusion(
+                log_id, leaf_hash, proof["leaf_index"], tampered, tree_size=proof["tree_size"]
+            ), "a flipped audit node still verified, so this check was not checking anything"
+
+
+def test_a_proof_for_a_size_beyond_the_accepted_head_is_refused(tmp_path: pathlib.Path) -> None:
+    """The binding has teeth: a size the accepted head does not cover raises rather than being re-derived.
+
+    A log can answer a proof for a tree larger than any head this store accepted. Recomputing a root for that
+    would be the store inventing its own anchor, so `verify_inclusion` refuses it - here on real numbers from
+    a production tree rather than a made-up size.
+    """
+    peer = PEERS[0]
+    store, log_id = _accepted_peer_head(peer, tmp_path)
+    proof = peer["entries"][0]["inclusion"]
+    leaf_hash = merkle.leaf_hash(base64.b64decode(peer["entries"][0]["leaf_input"]))
+    path = tuple(bytes.fromhex(node) for node in proof["audit_path"])
+    with pytest.raises(UnknownHead):
+        store.verify_inclusion(
+            log_id, leaf_hash, proof["leaf_index"], path, tree_size=proof["tree_size"] + 1
+        )
+
+
 def test_a_certificate_in_two_logs_is_one_certificate_with_two_provenances() -> None:
     """The cross-log case the row names, on bytes two operators served independently.
 
-    These are Sectigo Tiger2027h1's copies of certificates already in the verified Cloudflare prefix. They
-    are not proved inclusion - `verified: false` says so - but identity does not need inclusion: what it needs
-    is that the TBSCertificate the tree hashed is the same one, which is exactly what collides here.
+    These are Sectigo Tiger2027h1's copies of certificates already in the verified Cloudflare prefix, and
+    each one now arrives with an audit path to a head Sectigo signed - the test above re-derives those. What
+    this test is about is different: identity does not come from inclusion. Two proved entries in two trees
+    are still one certificate when the TBSCertificate the trees hashed is the same one, which is exactly what
+    collides here, and no amount of proof on either side would make them two certificates.
     """
     store = store_from_corpus()
     grouped = store.certificates()
@@ -244,21 +326,27 @@ def test_two_leaves_at_one_index_are_an_incident_rather_than_an_update() -> None
         store.add(substitute)
 
 
-def test_the_corpus_says_which_of_it_is_proved_and_which_is_only_positional() -> None:
-    """The fixture's own honesty field, guarded, because everything else in this file reads it.
+def test_the_corpus_says_how_each_half_of_it_is_proved() -> None:
+    """The fixture's own honesty fields, guarded, because everything else in this file reads them.
 
-    One log block is a verified prefix with a root proved consistent against a signed head; the peer blocks
-    are matched certificates from elsewhere, with no inclusion proof behind them - the capture matched them by
-    position and never asked either log for a path. It is not that logs refuse: asked at RFC 6962 section 4.5's
-    endpoint, every log in the fleet served one that verified, per `ctspy/docs/interop.md`. The gap is in this
-    fixture, not in the deployment. If that distinction were ever flattened, the tests above would start
-    claiming more than the bytes support.
+    Both halves are proved now, by different means over different spans. The primary block carries a *window*
+    - entries 0 to 235 - whose root is proved consistent with a head Cloudflare signed, which binds every
+    entry in it for the price of one proof. A peer block carries no window: its entries are proved one at a
+    time, each with its own path to a head Sectigo signed. `prefix` is what tells them apart, so a peer that
+    grew one would be claiming a proved history it does not have, and a peer entry that lost its path would be
+    quietly demoted to positional matching while still reading as `verified`.
+
+    The structure is asserted rather than the boolean, because a flag meaning "proved, somehow" is exactly the
+    flattening this test exists to catch.
     """
     assert PRIMARY["verified"] is True
     assert PRIMARY["prefix"]["consistent_with_head"] is True
     assert PRIMARY["prefix"]["size"] == len(PRIMARY["entries"])
     for peer in PEERS:
-        assert peer["verified"] is False
+        assert "prefix" not in peer, "a peer block claiming a proved window would over-claim"
+        assert peer["verified"] is True, "an unproved peer block must not read as acquisition"
+        assert peer["entries"], "a peer block with no entries proves nothing, quietly"
+        assert all("inclusion" in entry for entry in peer["entries"]), "a peer entry lost its proof"
         assert peer["head"]["log_id"] != PRIMARY["head"]["log_id"]
 
 

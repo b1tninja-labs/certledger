@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# The tests generate a CA, a server certificate and a server key into pytest's tmp dir every
+# session, and the anchor manifest they write is derived from them. None of it is evidence: a
+# committed throwaway key would look like a pin, and a pin is exactly the thing this repository
+# must never gain by accident.
+tests/fixtures/

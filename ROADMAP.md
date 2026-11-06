@@ -24,9 +24,9 @@ sends. Verify against the record rather than memory: `info('RFC9162')`,
 
 | Id | Spec | Status | Where | Evidence |
 |---|---|---|---|---|
-| `cl.ambient-trust` | Model I1 | [ ] | `fetch/anchors` | `test_environment_is_ignored` |
-| `cl.peer-assert` | Model L1 | [ ] | `fetch/path` | `test_peer_address_is_asserted` |
-| `cl.der-fidelity` | Model I3 | [ ] | `verify` | `test_signature_uses_stored_bytes` |
+| `cl.ambient-trust` | Model I1 | [x] | `anchors.py`, `context.py`, `path.py` | `test_environment_is_ignored` |
+| `cl.peer-assert` | Model L1 | [x] | `transport.py`, `path.py` | `test_peer_address_is_asserted` |
+| `cl.der-fidelity` | Model I3 | [x] | `der.py` | `test_signature_uses_stored_bytes` |
 | `cl.key-pins` | RFC 9162 section 3 | [ ] | `keys` | `test_unknown_key_is_rejected` |
 | `cl.sth-verify` | RFC 9162 section 2.1.1; v1 head: 6962 section 3.5, obsolete | [ ] | `verify/tree` | `test_sth_signature_round_trip` |
 | `cl.monotonic` | RFC 9162 section 2.1.1 | [ ] | `verify/tree` | `test_smaller_tree_is_rejected` |
@@ -59,6 +59,34 @@ depended on chains that were never logged. Detecting that requires in-the-wild
 observation, a separate dataset with separate costs. Until then the honest description is
 "every TLS certificate that was logged, plus what has been revoked, and the delta between
 them", and `cl.claims-discipline` exists to keep the marketing from outrunning that.
+
+## Status, 2026-11-05
+
+**Phase 0 is done.** `cl.ambient-trust`, `cl.peer-assert` and `cl.der-fidelity` closed with the
+tests named against them: 30 tests green under `pytest`, `ruff check`, `ruff format --check` and
+`mypy --strict`, 97% coverage.
+
+They run against live loopback sockets rather than mocks - a TLS server on 127.0.0.1 with a
+throwaway CA, a listener where a configured proxy would have gone, and a second TLS endpoint on
+127.0.0.2 so that a connection to the wrong address genuinely *succeeds* and can then be refused for
+the right reason. `SSL_CERT_FILE` is pointed at a CA that would verify the server, because pointing
+it at garbage would pass for an implementation that honoured it.
+
+Two things learned while building it, both of which change how a control looks rather than whether
+it exists:
+
+- **`http.client` rather than `urllib` is what makes "no proxy" structural.** `urllib.request` reads
+  `HTTPS_PROXY` unless handed an empty `ProxyHandler`; `requests` and `httpx` read it unless
+  `trust_env=False`. `http.client` never consults the environment. A control that depends on
+  remembering a keyword argument is a control that eventually gets remembered wrong.
+- **Peer identity must be taken at the handshake.** `http.client` closes the connection once a
+  non-keep-alive response is drained, so a receipt built after `read()` records "no peer" for a
+  fetch that worked perfectly.
+
+**Phase 1 is blocked on a decision, not on effort.** Its exit test needs STH and checkpoint
+structures, which `PORTFOLIO.md` section 6 assigns to `ctspy` - a Tier 2 project that does not exist
+yet. Either `ctspy` moves up, or the Merkle and transcript code is written here and later extracted.
+That is a sequencing call for the human, so it is recorded rather than assumed.
 
 ## Known costs
 

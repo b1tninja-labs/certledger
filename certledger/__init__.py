@@ -1,0 +1,58 @@
+"""certledger: independent CT acquisition, with the ambient trust removed.
+
+Phase 0 only so far - trust model L1. The pieces here are the ones that remove adversary A2, the
+attacker who needs access to this process's environment and nothing else:
+
+- `anchors` - the only certificates this process will trust, each with a date and a reason.
+- `context` - a TLS context that cannot contain anything else, and never reads the system store.
+- `transport` - dial the address we resolved, then prove we did.
+- `path` - a configured path that emits a receipt for every fetch, including the failures.
+- `der` - verification over stored octets (I3).
+
+`ROADMAP.md` names the test that closes each obligation; nothing here claims a row that has no
+passing test behind it.
+"""
+
+from __future__ import annotations
+
+from .anchors import Anchor, AnchorSet, pem_to_der
+from .context import build_client_context
+from .der import StoredDocument, capture, verify_over_stored
+from .errors import (
+    AmbientTrust,
+    AnchorSetProblem,
+    CertLedgerError,
+    PeerAddressMismatch,
+    Unreachable,
+)
+from .path import Exchange, FetchFailure, FetchPath, TrustClass, Vantage
+from .receipt import Receipt
+from .transport import DirectTransport, Resolver, SystemResolver, Transport
+
+__version__ = "0.0.1"
+
+__all__ = [
+    "AmbientTrust",
+    "Anchor",
+    "AnchorSet",
+    "AnchorSetProblem",
+    "CertLedgerError",
+    "DirectTransport",
+    "Exchange",
+    "FetchFailure",
+    "FetchPath",
+    "PeerAddressMismatch",
+    "Receipt",
+    "Resolver",
+    "StoredDocument",
+    "SystemResolver",
+    "Transport",
+    "TrustClass",
+    "Unreachable",
+    "Vantage",
+    "__version__",
+    "build_client_context",
+    "capture",
+    "pem_to_der",
+    "verify_over_stored",
+]

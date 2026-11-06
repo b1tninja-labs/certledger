@@ -1,0 +1,19 @@
+# The anchor set for phase 0, which is: nothing.
+#
+# An empty file is a deliberate configuration, not a stub. Phase 1 pins log keys (obligation
+# `cl.key-pins`, RFC 9162 section 3), and until that decision is made by a named human with a date
+# and a source, there is no honest entry to write here - a key copied out of somebody's log list
+# without a recorded pinning event is exactly the "poorly-anchored first pin" residual that trust
+# model section 6 warns about.
+#
+# Every entry added below needs all five fields. `AnchorSet.load` refuses an anchor without a date
+# or a reason rather than defaulting them, so an unreviewed trust decision fails loudly on load.
+#
+# The shape, for when a key is pinned:
+#
+#   [[anchor]]
+#   id = "ct-testlog-sctrsa-2026"        # stable, quoted in receipts
+#   origin = "ct.example.com"            # exact host this key is trusted for
+#   added = 2026-11-05                   # a date, because undated trust cannot be reviewed
+#   reason = "pinned from the operator's published key digest at <source>"
+#   file = "ct-testlog-sctrsa-2026.pem"

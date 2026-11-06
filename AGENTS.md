@@ -1,8 +1,11 @@
 # Instructions for coding agents
 
-**This directory contains a trust model, an architecture and a plan. There is no code here
-yet** - no package, no `pyproject.toml`, no runnable command. Do not scaffold one before
-wave 1 of `D:\code\PORTFOLIO.md` schedules it.
+**Phase 0 landed on 2026-11-05.** This directory is a package now - `certledger/`, `anchors/`,
+`tests/` and a `pyproject.toml` - because `PORTFOLIO.md` section 7 schedules "certledger phases 0
+and 1" inside wave 1, which is the gate this file used to place on scaffolding. Phase 1 has not been
+written; `ROADMAP.md` says exactly what is open and what it waits on.
+
+The rest of this file is unchanged, because none of it is affected by there being code.
 
 ## Read in this order
 

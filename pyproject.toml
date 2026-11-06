@@ -1,0 +1,114 @@
+[build-system]
+# Declared explicitly rather than relying on pip's legacy setuptools fallback: with no
+# build-system table pip injects an unpinned setuptools environment, so a build is neither
+# reproducible nor hermetic. Same reasoning as asn1core/pyproject.toml.
+requires = ["hatchling>1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "certledger"
+dynamic = ["version"]
+description = "Independent Certificate Transparency acquisition and publication: ambient trust removed, log signatures verified over stored bytes"
+readme = "TRUST-MODEL.md"
+license = "Apache-2.0"
+requires-python = ">3.12"
+authors = [{ name = "Justin Capella" }]
+keywords = ["certificate-transparency", "ct", "x509", "trust", "audit", "merkle"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Security",
+]
+# Two dependencies, and both are load-bearing rather than convenient.
+#
+# asn1core is here because trust model I3 forbids verifying a signature over anything other
+# than the stored original octets, and the codec available before it discarded them. This is
+# the reason that codec exists; PORTFOLIO.md section 6 records the edge.
+#
+# cryptography supplies the TLS handshake and the signature primitives. Trust model I10 says
+# verification must not be pluggable and no runtime dependency may make a *trust decision*:
+# this package decides which key is trusted (the pinned set in anchors/) and what bytes are
+# signed (the stored TLV); the library only answers "does this signature match these bytes
+# under this key", which is arithmetic, not a judgement.
+dependencies = [
+  "asn1core",
+  "cryptography>43",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "mypy",
+]
+
+[tool.hatch.version]
+path = "certledger/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["certledger"]
+
+# The anchor set ships with the wheel. An anchor list that a packager can leave behind is an
+# anchor list that silently becomes "no anchors", which fails closed but is not the intent.
+[tool.hatch.build.targets.wheel.force-include]
+anchors = "certledger/anchors"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# "../asn1core" resolves the hard dependency from the sibling checkout in the portfolio
+# workspace. At release time the dependency is a version on PyPI and this entry goes away;
+# until then an installed-but-stale asn1core would be worse than a path, because the codec is
+# the thing being relied on for byte fidelity.
+pythonpath = [".", "../asn1core"]
+addopts = "-ra"
+
+[tool.coverage.run]
+branch = true
+source = ["certledger"]
+
+[tool.coverage.report]
+# Set at what phase 0 actually exercises rather than a number to aspire to, so a drop here
+# means a control stopped being tested. Raise it in the commit that implements a milestone.
+fail_under = 80
+show_missing = true
+exclude_lines = [
+  "if __name__ == .__main__.:",
+  "pragma: no cover",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "N", "UP", "SIM", "C4", "PT", "RUF", "S", "RET", "ARG"]
+ignore = [
+  "E501",  # line length is the formatter's job
+  "S101",  # assert belongs in tests, and the portfolio has a written policy on it
+  "N818",  # the error names here read as conditions, which is what callers branch on
+  # S3xx flags sockets and TLS as if reaching the network were the bug. A fetch layer that
+  # could not be pointed at a host could not be tested either; the controls that matter are
+  # explicit in transport.py and context.py and each has a named test.
+  "S310",
+  "S324",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S311", "ARG001", "ARG002"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["certledger", "tests"]
+mypy_path = "../asn1core"

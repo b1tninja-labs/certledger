@@ -123,6 +123,25 @@ is stable precisely because it is counted in bytes. So size the walk in bytes an
 tolerate, and treat the request count as the thing they ration rather than a capacity to plan against — TrustAsia
 answered `429` on two of its four probe steps at four-way concurrency.
 
+### Two "usable" logs have not issued in over a year
+
+Asking every listed log for the timestamp of its own newest leaf — the fleet's present defined by the logs rather
+than by a clock — gives a **median head age of 0.0012 days and a spread of 414 days**, because two Sectigo logs
+have stopped:
+
+| Log | Newest leaf | Age | Tree size | Listed as |
+| --- | --- | --- | --- | --- |
+| Sectigo Mammoth2026h2 | 2025-09-18T15:34Z | **414.31 days** | 57,634,084 | usable |
+| Sectigo Sabre2026h2 | 2025-11-11T05:01Z | **360.75 days** | 68,732,793 | usable |
+
+Every other log's newest leaf was within 40 minutes of the probe; 22 of 23 answered at all. Three consequences.
+**The live fleet is 20 logs, not 23** — "answers `get-sth`" measures availability, not issuance, and the walk
+budget should follow the logs that are actually issuing. **These two need one finite pass and no watching**: their
+trees are fixed at 126M leaves between them, about 2% of the Sectigo row in the table above, so they are cheap to
+close out entirely. And **the log list is not a coverage statement**: someone publishing from the list alone would
+describe a log as usable that has been silent for a year, which is the same class of error as reporting a gap as
+absence — the end of a log's history is a fact its tree carries and its list entry does not.
+
 ## Deployment shape: Fargate in production, the same image locally
 
 The constraint is that a harvest task must be **restartable, idempotent, and provably what it claims**. That
@@ -281,6 +300,28 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
   53 days — a standby, not a log to walk). TrustAsia refused **both** of its logs at four-way concurrency after
   four attempts each, which the tool now records as a hole rather than grinding against; that ceiling, not
   bandwidth, is what the harvest schedule has to respect.
+
+  **A third run seeked each log to one agreed instant, and it worked** — binary-searching `get-entries` for the
+  index of a timestamp, anchored on the **median log head** rather than the host clock or the oldest head (both of
+  which put the window in the wrong place: the oldest-head version landed in September 2025 because of the stale
+  Sectigo logs above). Measured on the same cross-operator pair twice: **DigiCert Wyvern2026h2 shared 50.9% of its
+  window with Google Argon2026h2** (302 of 593) in the present, against **77.7%** in a September 2025 window. So
+  cross-operator fan-out is real, large, and **variable** — call it half to three-quarters — while same-operator
+  pairs sit near zero (DigiCert's own pair and Google's own pair both shared nothing) except Sectigo's, at ~30%.
+  Two things must not be read off this run. The aggregate "fleet factor" printed **1.06×**, which is meaningless:
+  it was computed over a 3.459 s interval that four logs happened to share, and it averaged in the near-zero
+  same-operator pairs that dilute exactly the signal being looked for. And **both Cloudflare logs returned NO
+  DATA** — not because the seek failed but because their leaf timestamps trail the present by about 50 minutes, so
+  a window centred on "now" quietly drops the static-merge logs, which are the one place intra-log duplication
+  would still turn up. Anything that wants Cloudflare in the comparison needs a window measured in each log's own
+  recent issuance, not in wall-clock seconds.
+
+  What the numbers do support is the sizing decision. Intra-log duplication is **zero in every log that returned
+  data across all four runs** — 21 log samples from tails and seeked windows alike — so a log's leaves are distinct
+  entries; cross-operator duplication runs **half to three-quarters**, so
+  the fleet's 33.83B leaves are on the order of **17-21B distinct certificates** rather than 33.83B, and the DER
+  tier is **~18-22 TB rather than 35.5 TB**. That is the only large saving available in the blob tier, it comes
+  from deduplication rather than compression, and it is bounded above by the logs never sampled here.
 - **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
   DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
   now than after 40 TB exists.

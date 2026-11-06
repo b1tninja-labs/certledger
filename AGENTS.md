@@ -73,5 +73,5 @@ the file counts as evidence rather than build output.
 
 The distinction the list defends: a fixture is evidence when it cannot be regenerated - its bytes are bound
 to a signed tree head that no longer describes the log's current tree. `entry-corpus.json` (prefix, bound by
-a consistency proof) and `midwindow-corpus.json` (proved slice from a tree midpoint, written by
+a consistency proof) and `midwindow-corpus.json` (proved slices from two tree midpoints, written by
 `tools/corpus.py --window`) both qualify; anything a test can create at runtime stays ignored.

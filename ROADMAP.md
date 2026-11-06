@@ -206,12 +206,13 @@ issuer and Authority Key Identifier of that stored copy - keying on it would spl
 several identities, which is the failure this row exists to prevent. Both are documented in
 `ctspy/docs/interop.md`, which also records the two wrong answers held before these were right.
 
-What the corpora do not settle: no entry in the prefix corpus embeds an SCT list, and the 10 SCT-bearing
-entries in the middle-window fixture have no twin logged under a different `TBSCertificate` spelling, so
-folding one issuance's two spellings together remains untested on production bytes.
-`has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it - 0 across the prefix, 10
-across the window - so folding them stays a decision made against a number rather than a capability. A
-*completed* live walk remains gated on `cl.multi-path` and the
+What the corpora do not settle: no entry in the prefix corpus embeds an SCT list, and none of the 33
+SCT-bearing entries across the two middle windows has a twin logged under a different `TBSCertificate`
+spelling, so folding one issuance's two spellings together remains untested on production bytes.
+`has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it - 0 across a 236-entry prefix
+of Nimbus2027, 23 across 64 entries at that same log's midpoint, 10 across 64 in Xenon2027h1 - which says the
+bytes to look for are deep in a tree rather than at its start, and stops short of saying why. A *completed*
+live walk remains gated on `cl.multi-path` and the
 anchor decision.
 
 
@@ -251,13 +252,16 @@ One half-year Google log held about 242 million entries when measured on 2026-11
 entries and certificates are different counts by design. Per-log rate limits and whether public archives
 cover every currently usable log remain unmeasured; each is a phase-2 blocker rather than a footnote, and
 `TRUST-MODEL.md` section 11 tracks them. The cardinality of the `cA=TRUE` layer is no longer one of them, and
-what it turned out to be is that the question needed a second sample. `cl.cag-graph` measured 8 CA entries and
-4 distinct issuers across a verified 236-entry Nimbus2027 prefix, recorded as "a ratio, not an estimate". A
-proved 64-entry window at the midpoint of Google's Xenon2027h1 - `tools/corpus.py --window`, held in
-`tests/fixtures/midwindow-corpus.json` - contains 0 CA entries and **20 distinct issuers**. So the 4 was a
-measurement of how a log begins, not of the CA layer, and the hedge attached to it understated how little it
-could carry. The comparison is confounded, and the fixture's own test says so rather than letting the number
-travel alone: different log, different operator, different position, 64 entries. Google answers 32 entries per
+what it turned out to be is that the question needed a second sample from the same log. `cl.cag-graph` measured
+8 CA entries and 4 distinct issuers across a verified 236-entry Nimbus2027 prefix, recorded as "a ratio, not an
+estimate". `tools/corpus.py --window` then proved a 64-entry slice at the midpoint of **that same log**: 0 CA
+entries and **17 distinct issuers**. Same operator, same log, same issuance population, with position the only
+thing that differs - so the 4 measured how a log begins and could not be quoted as the size of the CA layer,
+and the hedge attached to it was carrying far less than it appeared to. A second window at the midpoint of
+Google's Xenon2027h1 corroborates the direction (20 issuers) but is not the controlled comparison, because
+there operator and log change along with position; `tests/test_midwindow.py` keeps the two in separate tests so
+a confounded number cannot be pooled with a clean one. Both samples are small - 64 and 236 entries out of
+hundreds of millions - and no rate is claimed from either. Google answers 32 entries per
 `get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
 the walk's request count: about 7.6 million requests for one such half-year log.
 
@@ -282,7 +286,7 @@ were closed anyway.
   million a half-year log holds. Persisting it is a real decision about retention and about what may be
   republished, so it waits for `cl.aup-review` rather than guessing at storage technology now.
 - **SCT-aware deduplication.** SCT parsing lives in `ctspy`, and folding two spellings of one issuance
-  together needs an entry carrying an SCT list *and* a twin logged under the other spelling. The middle-window
-  fixture supplies the first - 10 x509 entries with SCT lists, where the prefix has none - and no twin: all 64
-  identities there are distinct. `EntryStats.sct_bearing` keeps that a number to check rather than a case
-  quietly assumed away, and the window's test fails loudly if a future capture finally produces the collision.
+  together needs an entry carrying an SCT list *and* a twin logged under the other spelling. The middle windows
+  supply the first - 33 x509 entries with SCT lists, where the prefix has none - and no twin: every identity in
+  both windows is distinct. `EntryStats.sct_bearing` keeps that a number to check rather than a case quietly
+  assumed away, and the window tests fail loudly if a future capture finally produces the collision.

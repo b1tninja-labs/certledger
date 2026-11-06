@@ -60,6 +60,7 @@ from ctspy.ecdsa import EcdsaKey, verify_sha256  # noqa: E402
 
 USER_AGENT = "certledger-corpus/0 (evidence capture; independent monitor)"
 LOG_LIST = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
+WINDOW_FILE = "midwindow-corpus.json"
 
 
 def get_json(url: str, *, retries: int = 3) -> dict:
@@ -214,14 +215,39 @@ def window(origin: str, start: int, count: int, page: int = 32) -> list[tuple[in
     return rows[:count]
 
 
+def _load_windows(path: pathlib.Path) -> dict:
+    """The existing window fixture, coerced to the shape this tool writes from now on.
+
+    The first capture held one window at the top level because there was one window. Sampling a second log
+    turns that into a list, and the migration happens on read rather than by editing committed evidence: the
+    bytes already recorded keep their head and index exactly as captured, and only the container changes shape.
+    """
+    if not path.exists():
+        return {}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if "windows" not in document and "entries" in document:
+        document["windows"] = [
+            {
+                "log": document.pop("log"),
+                "window": document.pop("window"),
+                "entries": document.pop("entries"),
+            }
+        ]
+    return document
+
+
 def capture_window(out: pathlib.Path, origin: str, count: int, start: int | None) -> int:
     """A proved slice from somewhere in the middle of a tree.
 
     The prefix corpus answers one question and cannot answer this one: how many CAs *begin* a log, and how many
     sit in the middle of it. Positions 0 to 235 of Nimbus2027 are the start of a half-year log, and a CA layer
-    measured there is a ratio about beginnings. This captures entries at the midpoint of a much larger tree and
-    proves each one individually with the request the earlier version of this tool believed nobody would
-    answer, so the number can be compared rather than assumed.
+    measured there is a ratio about beginnings. This captures entries at the midpoint of a tree and proves each
+    one individually with the request the earlier version of this tool believed nobody would answer.
+
+    One window per log, merged into `midwindow-corpus.json`, so capturing the prefix's *own* log adds a sample
+    that differs from the prefix in position and in nothing else. Re-capturing a log replaces that log's window
+    and leaves the others alone, because a window's bytes are bound to the head beside them and a head that has
+    since grown cannot be reproduced.
 
     Every entry must come back proved. A window with holes is a different sample than the one described, and
     selection bias inside a transparency fixture is the last thing it needs.
@@ -248,24 +274,34 @@ def capture_window(out: pathlib.Path, origin: str, count: int, start: int | None
             }
         )
 
-    document = {
-        "captured": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-        "tool": "certledger/tools/corpus.py --window",
-        "why": "the CA layer away from position 0. The prefix corpus says how many issuers begin a tree; "
-        "this says how many appear in the middle of one, each entry proved into that tree by its own path.",
-        "transport": {
-            "verified": False,
-            "why": "no anchor decision exists yet, so TLS is not trusted; the bytes are believed because a "
-            "published key signed a tree that contains them",
-        },
-        "log": {"origin": origin, "head": head_block(tree_head, key, source)},
-        "window": {"start": first, "count": len(entries), "chosen_by": "tree_size // 2"},
-        "entries": entries,
-    }
     out.mkdir(parents=True, exist_ok=True)
-    path = out / "midwindow-corpus.json"
+    path = out / WINDOW_FILE
+    document = _load_windows(path)
+    document["tool"] = "certledger/tools/corpus.py --window"
+    document["why"] = (
+        "the CA layer away from position 0. The prefix corpus says how many issuers begin a tree; this says how "
+        "many appear in the middle of one, each entry proved into that tree by its own path."
+    )
+    document["transport"] = {
+        "verified": False,
+        "why": "no anchor decision exists yet, so TLS is not trusted; the bytes are believed because a "
+        "published key signed a tree that contains them",
+    }
+    windows = [w for w in document.get("windows", []) if w["log"]["origin"] != origin]
+    windows.append(
+        {
+            "log": {"origin": origin, "head": head_block(tree_head, key, source)},
+            "window": {"start": first, "count": len(entries), "chosen_by": "tree_size // 2"},
+            "entries": entries,
+        }
+    )
+    document["windows"] = sorted(windows, key=lambda w: str(w["log"]["origin"]))
+    document["captured"] = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"wrote {path} ({path.stat().st_size} bytes): {len(entries)} proved entries at {first}")
+    print(
+        f"wrote {path} ({path.stat().st_size} bytes): {len(document['windows'])} windows, "
+        f"newest {len(entries)} proved entries at {first} ({origin})"
+    )
     return 0
 
 

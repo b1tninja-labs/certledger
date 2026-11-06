@@ -33,6 +33,20 @@ sends. Verify against the record rather than memory: `info('RFC9162')`,
 | `cl.consistency` | RFC 9162 section 2.1.1 | [x] | `verify/proofs` | `test_mstc_rejects_bad_proof` |
 | `cl.inclusion` | RFC 9162 section 2.1.2 | [x] | `verify/proofs` | `test_mth_and_audit_path` |
 | `cl.receipts` | Model I6 | [x] | `store/receipt` | `test_every_object_has_a_receipt` |
+| `cl.dedupe` | RFC 6962 section 2.1 | [x] | `store/entries` | `test_entry_count_differs_from_cert_count` |
+| `cl.walk-budget` | Model I5, section 8 | [x] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
+| `cl.cag-graph` | - | [x] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
+| `cl.multi-path` | Model I7 | [ ] | `acquire/fanout` | `test_absence_needs_two_path_classes` |
+| `cl.states` | Model section 8 | [x] | `store/state` | `test_divergent_is_not_publishable` |
+| `cl.keyproof-consume` | keyproof PLAN, ladder rung 1 | [ ] | `verify/denylist` | `test_chain_with_listed_spki_is_flagged` |
+| `cl.dane` | RFC 6698 as updated | [ ] | `fetch/dane` | `test_impostor_endpoint_is_unauthenticated` |
+| `cl.self-transparency` | Model I9 | [ ] | `publish/checkpoints` | `test_our_checkpoint_is_mirrored` |
+| `cl.aup-review` | Chrome log-list AUP | [ ] | docs | legal sign-off recorded with a date |
+| `cl.claims-discipline` | Model section 9 | [ ] | docs, UI | copy review: no "all certificates" claim |
+
+Nineteen obligations, thirteen closed with a named test, six waiting on something named beside them. The
+table used to read "18" while carrying nineteen rows, which is the sort of error a count kept in prose rather
+than derived from the rows makes by itself.
 
 Phase 1 lives in two new modules: `certledger/keys.py` (the pin registry and the origin-keyed lookup)
 and `certledger/heads.py` (monotonic head store, consistency on growth, inclusion bound to an
@@ -47,17 +61,6 @@ those artifacts over an asserted path (`cl.multi-path`) is still open. What does
 `tools/corpus.py`, a capture tool outside the package, and its output says so - `transport.verified` is
 false because there is no anchor decision to verify TLS against, and the bytes are believed anyway, because
 a published key signed a tree that contains them.
-
-| `cl.dedupe` | RFC 6962 section 2.1 | [x] | `store/entries` | `test_entry_count_differs_from_cert_count` |
-| `cl.walk-budget` | Model I5, section 8 | [x] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
-| `cl.cag-graph` | - | [x] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
-| `cl.multi-path` | Model I7 | [ ] | `acquire/fanout` | `test_absence_needs_two_path_classes` |
-| `cl.states` | Model section 8 | [x] | `store/state` | `test_divergent_is_not_publishable` |
-| `cl.keyproof-consume` | keyproof PLAN, ladder rung 1 | [ ] | `verify/denylist` | `test_chain_with_listed_spki_is_flagged` |
-| `cl.dane` | RFC 6698 as updated | [ ] | `fetch/dane` | `test_impostor_endpoint_is_unauthenticated` |
-| `cl.self-transparency` | Model I9 | [ ] | `publish/checkpoints` | `test_our_checkpoint_is_mirrored` |
-| `cl.aup-review` | Chrome log-list AUP | [ ] | docs | legal sign-off recorded with a date |
-| `cl.claims-discipline` | Model section 9 | [ ] | docs, UI | copy review: no "all certificates" claim |
 
 ## Why this ordering
 
@@ -120,7 +123,8 @@ an estimate for a 242-million-entry half-year.
 
 `cl.walk-budget` closed the same phase as a mechanism, and its content is three refusals rather than a loop.
 A **short page is a cap, not the end of the tree**: Google answers 32 entries however many are requested
-(measured here; RFC 6962 section 4.6 permits partial responses), so the walk learns the observed cap,
+(measured here; RFC 9162 section 5.6 paragraph 8 permits it and v1's section 4.6 said the same), so the walk
+learns the observed cap,
 continues from the first index it did not receive, and stops only at the signed `tree_size`. A loop that read
 a short response as exhaustion would report a 32-entry tree for a log whose captured head signs
 872,937,158 entries, and its report would look complete. A **body that is not JSON, or JSON with no `entries`
@@ -141,6 +145,14 @@ too, which would have let a single malformed field freeze a healthy log. `may_cl
 unless the walk completed, and `test_no_absence_claim_survives_a_real_tree_size` runs it against Nimbus2027's
 own accepted head, where two pages of real entries leave a gap of 872,937,094 entries and no index in that
 tree can honestly be called absent.
+
+Checking the citations against the record rather than trusting memory then corrected one claim made in that
+same commit. RFC 9162 section 5.6 paragraph 9 **mandates** an empty `entries` array when skew leaves the log
+with nothing in the requested range, and paragraph 7 makes a partial response a MUST where v1 only permitted
+one. So `EMPTY_WITHIN_TREE` records two artifacts disagreeing - the accepted head and this response - rather
+than a finding about the log, and the wording in `walk.py`, its test and this file was changed to match. The
+state itself still earns its keep: an empty array is legal and is still not permission to call the walk
+finished.
 
 **Phase 2's exit criterion is not met, and closing the row does not change that.** "A walk of one live log
 with its tree size matched against the log's own signed head" needs roughly 27 million requests at Google's
@@ -211,5 +223,5 @@ usable log are all unmeasured; each is a phase-2 blocker rather than a footnote,
 `TRUST-MODEL.md` section 11 tracks them. The first two data points on the CA layer landed with
 `cl.cag-graph`: 8 of 236 entries in a verified Nimbus2027 prefix carry `cA=TRUE`, and 236 entries drew edges
 from 4 issuing keys - a ratio, not an estimate, and recorded as such. Google answers 32 entries per
-`get-entries` request however many are asked for (RFC 6962 section 4.6 permits this), which sets the walk's
-request count: about 7.6 million requests for one such half-year log.
+`get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
+the walk's request count: about 7.6 million requests for one such half-year log.

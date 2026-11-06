@@ -205,12 +205,16 @@ def test_a_short_page_is_a_cap_and_not_the_end_of_the_tree(tmp_path: pathlib.Pat
     )
 
 
-def test_no_entries_inside_the_signed_tree_size_is_an_anomaly(tmp_path: pathlib.Path) -> None:
-    """A log that answers with nothing while its head promises entries has a problem, not a finished tree.
+def test_no_entries_inside_the_signed_tree_size_is_a_gap_not_a_finished_walk(
+    tmp_path: pathlib.Path,
+) -> None:
+    """An empty array where the accepted head promises entries is a range this walk does not have.
 
-    Section 4.6 lets a log answer partially, so "empty" is not evidence of absence; the signed head is. The
-    state is `EMPTY_WITHIN_TREE` rather than `UNREACHABLE` because the fetch *succeeded* - the disagreement
-    is between two things the log said, which is a finding about the log.
+    The state is `EMPTY_WITHIN_TREE` rather than `UNREACHABLE` because the fetch *succeeded*: what happened is
+    that two artifacts disagree. RFC 9162 section 5.6 paragraph 9 makes an empty array legal under skew, so
+    this is not treated as a finding about the log - the honest reading is that either the head or this
+    response is behind, and the next pass with a fresher head says which. What it can never mean is "finished"
+    or "nothing there", because the tree size we accepted says otherwise.
     """
     head, log_id = accepted_head(tmp_path, leaves_of(96))
     fetcher = ReplayFetcher(ENTRIES, answer=32, empty_at=(32,))

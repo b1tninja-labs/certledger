@@ -11,24 +11,32 @@ Monday.
 Three measured facts about deployed logs are built into the loop, all from this workspace's own surveys
 rather than from the specification:
 
-- **A short page is a cap, not the end of the tree.** Google answers 32 entries however many are asked for
-  (RFC 6962 section 4.6 permits partial responses), and the log still had roughly three billion entries
-  left. So the walk continues from the first index it did not receive, learns the observed cap, and asks for
-  exactly that thereafter rather than re-requesting a window it knows will be truncated.
+- **A short page is a cap, not the end of the tree.** Google answers 32 entries however many are asked for,
+  and the log still had roughly three billion entries left. RFC 9162 section 5.6 paragraph 8 makes that legal
+  and adds that the returned entries SHALL be sequential beginning with the one named by `start` - which is
+  why position here is taken from the request rather than from any field in the response - and paragraph 7
+  goes further than v1 did by making a partial response a MUST when `end` runs past `tree_size`. So the walk
+  continues from the first index it did not receive, learns the observed cap, and asks for exactly that
+  thereafter rather than re-requesting a window it knows will be truncated.
 - **The signed head, not the response, decides how many entries exist.** The loop terminates at
-  `head.tree_size`. A log answering with nothing at index 40 while its signed head promises three billion
-  entries has not finished; that range is recorded `EMPTY_WITHIN_TREE`, which is an anomaly about the log
-  rather than a completed walk.
+  `head.tree_size`. A log answering with nothing at index 40 while the head we accepted promises three
+  billion entries has not finished, so that range is recorded as `EMPTY_WITHIN_TREE` and stays unread. It is
+  not an accusation: section 5.6 paragraph 9 gives skew as a legitimate reason to return an empty array, so
+  what this records is that the head and the response disagree, and a later pass with a fresher head decides
+  which was wrong.
 - **`extra_data` framing differs by entry type** (`ctspy.entry.parse_extra_data`), so the walk hands the leaf
   octets and the extra octets to the parser together and lets an entry that cannot be read become opaque
-  rather than dropping it.
+  rather than dropping it. RFC 6962 section 4.6 paragraph 8 is the v1 wording that says so; unrecognized
+  entries stay opaque input to the tree, which paragraph 9 of that section explicitly allows.
 
 Completeness is checked by hash, not by counting. A contiguous run of leaves from index 0 whose Merkle Tree
 Hash equals the root the log signed cannot be missing an entry - the root commits to every leaf - so
-`WalkReport.complete` requires that equality, and only then does `may_claim_absent` answer True. That is also
-why a single path can support an absence claim here while it cannot support one about content: the arithmetic
-does the work, not the number of observers. Publication still needs I7 corroboration, and a walk that stops
-for budget says so in its own record instead of leaving the reader to notice.
+`WalkReport.complete` requires that equality, and only then does `may_claim_absent` answer True. That is not
+this module's invention: RFC 9162 section 5.6 paragraph 11 points at section 2.1.2 for exactly this use of a
+complete entry list. It is also why a single path can support an absence claim here while it cannot support
+one about content: the arithmetic does the work, not the number of observers. Publication still needs I7
+corroboration, and a walk that stops for budget says so in its own record instead of leaving the reader to
+notice.
 """
 
 from __future__ import annotations
@@ -55,6 +63,9 @@ class GapState(StrEnum):
 
     UNREACHABLE = "UNREACHABLE"
     BUDGET = "BUDGET"
+    # The fetch succeeded and the array was empty where the accepted head promises entries. RFC 9162 section
+    # 5.6 paragraph 9 permits exactly that under skew, so this records a disagreement between two artifacts,
+    # not a finding about the log: the next pass, with a fresher head, says which one was behind.
     EMPTY_WITHIN_TREE = "EMPTY_WITHIN_TREE"
     CONFLICT = "CONFLICT"
 
@@ -249,7 +260,8 @@ class LogWalk:
                         index,
                         index + want,
                         GapState.EMPTY_WITHIN_TREE,
-                        f"get-entries answered with no entries inside tree size {self.head.tree_size}",
+                        f"get-entries returned no entries inside tree size {self.head.tree_size} "
+                        "(legal under skew; the head and this response disagree)",
                         exchange.receipt,
                     )
                 )

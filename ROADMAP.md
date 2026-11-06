@@ -43,13 +43,13 @@ Two things this does **not** claim. The shipped `keys/pins.toml` is empty: the r
 `tests/fixtures/log-pins.toml` are test material, and trust model section 8 reserves a key decision
 for a named human, so the deployment ring stays empty until one is recorded. And nothing in the package
 fetches: these modules verify artifacts that are handed to them, so the acquisition loop that produces
-those artifacts over an asserted path (`cl.walk-budget`, `cl.multi-path`) is still open. What does fetch is
+those artifacts over an asserted path (`cl.multi-path`) is still open. What does fetch is
 `tools/corpus.py`, a capture tool outside the package, and its output says so - `transport.verified` is
 false because there is no anchor decision to verify TLS against, and the bytes are believed anyway, because
 a published key signed a tree that contains them.
 
 | `cl.dedupe` | RFC 6962 section 2.1 | [x] | `store/entries` | `test_entry_count_differs_from_cert_count` |
-| `cl.walk-budget` | Model I5, section 8 | [ ] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
+| `cl.walk-budget` | Model I5, section 8 | [x] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
 | `cl.cag-graph` | - | [x] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
 | `cl.multi-path` | Model I7 | [ ] | `acquire/fanout` | `test_absence_needs_two_path_classes` |
 | `cl.states` | Model section 8 | [ ] | `store/state` | `test_divergent_is_not_publishable` |
@@ -118,6 +118,38 @@ The CA graph over the same prefix draws 236 edges from 4 issuing keys, and **8 e
 3.4% of the sample. That is one data point against PLAN.md's unmeasured Tier A cardinality, and nowhere near
 an estimate for a 242-million-entry half-year.
 
+`cl.walk-budget` closed the same phase as a mechanism, and its content is three refusals rather than a loop.
+A **short page is a cap, not the end of the tree**: Google answers 32 entries however many are requested
+(measured here; RFC 6962 section 4.6 permits partial responses), so the walk learns the observed cap,
+continues from the first index it did not receive, and stops only at the signed `tree_size`. A loop that read
+a short response as exhaustion would report a 32-entry tree for a log whose captured head signs
+872,937,158 entries, and its report would look complete. A **body that is not JSON, or JSON with no `entries`
+array, is `UNREACHABLE` and not an empty range**: that distinction is all of I5's rule that a failed fetch
+records the absence of a
+fetch, and `document.get("entries", [])` is how a rate limiter's HTML page becomes "this log had nothing
+there". And **completeness is a hash equality, not a count** - leaves 0..tree_size-1 whose Merkle Tree Hash
+equals the signed root cannot be missing one, which is why one path can support an absence claim about
+*position* while it can never support one about *content*.
+`test_counting_entries_alone_never_declares_a_walk_complete` pushes one mutated leaf through every counter in
+the report (right number of entries, right positions, no gaps, no failures) and only the root disagrees.
+
+Two gap states came out of writing it wrong first. A position re-served with different bytes is `CONFLICT`,
+which makes `complete` False even when the store happens to hold a whole tree: two versions of one position
+is the state table's `DIVERGENT` case, and freezing is the prescribed behaviour. One entry whose base64 will
+not decode costs exactly **one position** and the walk carries on - the first draft called that a conflict
+too, which would have let a single malformed field freeze a healthy log. `may_claim_absent` answers False
+unless the walk completed, and `test_no_absence_claim_survives_a_real_tree_size` runs it against Nimbus2027's
+own accepted head, where two pages of real entries leave a gap of 872,937,094 entries and no index in that
+tree can honestly be called absent.
+
+**Phase 2's exit criterion is not met, and closing the row does not change that.** "A walk of one live log
+with its tree size matched against the log's own signed head" needs roughly 27 million requests at Google's
+observed page size for this one log, and the fetcher that would issue them cannot run until the anchor
+decision recorded in `AGENTS.md` and below is made by a named human. The heads in `tests/test_walk.py` are
+signed by throwaway keys over production leaves, because no log will sign an arbitrary prefix on demand; that
+makes the completeness *arithmetic* real and the *footing* synthetic, which is said here rather than in a
+footnote.
+
 Two rules came out of the measurement and are now load-bearing in the code. A precert entry is attributed to
 the leaf's `issuer_key_hash`, never to `chain[0]`: across 494 production precerts in five logs, 173 had a
 Precertificate Signing Certificate first in their chain, and the corpus contains 13 such entries, each of
@@ -130,7 +162,7 @@ several identities, which is the failure this row exists to prevent. Both are do
 What the corpus does not settle: no entry in it embeds an SCT list, so the case where one issuance has two
 TBSCertificate spellings - with and without that extension - is untested on production bytes here.
 `has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it, so folding them stays a
-decision made against a number. The walk itself remains gated on `cl.walk-budget`, `cl.multi-path`, and the
+decision made against a number. A *completed* live walk remains gated on `cl.multi-path` and the
 anchor decision.
 
 

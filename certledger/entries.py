@@ -60,6 +60,7 @@ class EntryRecord:
 
     log_id: bytes
     index: int
+    leaf: bytes
     leaf_sha256: bytes
     entry_type: str
     identity: bytes
@@ -100,6 +101,7 @@ class EntryRecord:
             return cls(
                 log_id=log_id,
                 index=index,
+                leaf=leaf_input,
                 leaf_sha256=leaf_sha256,
                 entry_type="opaque",
                 identity=hashlib.sha256(leaf_input).digest(),
@@ -130,6 +132,7 @@ class EntryRecord:
         return cls(
             log_id=log_id,
             index=index,
+            leaf=leaf_input,
             leaf_sha256=leaf_sha256,
             entry_type=entry_type,
             identity=hashlib.sha256(tbs).digest(),
@@ -254,6 +257,35 @@ class EntryStore:
             (record for record in self._by_position.values() if record.issuer is not None),
             lambda record: record.issuer or b"",
         )
+
+    def positions(self, log_id: bytes) -> tuple[int, ...]:
+        """Every index held for this log, ascending. Holes here are why `root_hash` can answer None."""
+        return tuple(
+            sorted(record.index for record in self._by_position.values() if record.log_id == log_id)
+        )
+
+    def leaves(self, log_id: bytes) -> tuple[tuple[int, bytes], ...]:
+        """(index, leaf octets) ascending - the input a tree hash needs, in the order the tree has it."""
+        return tuple(
+            (record.index, record.leaf)
+            for record in sorted(
+                (found for found in self._by_position.values() if found.log_id == log_id),
+                key=lambda found: found.index,
+            )
+        )
+
+    def root_hash(self, log_id: bytes) -> bytes | None:
+        """The Merkle Tree Hash over everything held for this log, or None if the record has holes.
+
+        A tree hash is only a statement about a tree when the leaves are a contiguous run from zero; the
+        hash of a set with a hole in it is a number about nothing, and handing one back would be worse than
+        admitting the record is incomplete. This is what lets a finished walk *prove* completeness by
+        comparing against the signed head rather than asserting it from a counter.
+        """
+        held = self.leaves(log_id)
+        if not held or [index for index, _ in held] != list(range(len(held))):
+            return None
+        return merkle.tree_hash([leaf for _, leaf in held])
 
     def stats(self) -> EntryStats:
         records = self.entries()

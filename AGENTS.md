@@ -4,7 +4,9 @@
 `certledger/`, `anchors/`, `keys/`, `tests/` and a `pyproject.toml` - because `PORTFOLIO.md` section 7
 schedules "certledger phases 0 and 1" inside wave 1. `ROADMAP.md` says exactly what is closed, what is open,
 and what it waits on; the fetch layer still waits on a human anchor decision, and the package still does not
-reach the network itself.
+reach the network itself. `walk.py` carries the completeness discipline in code: an unread range is recorded
+as *unfetched* and never as *absent*, and completeness is the stored leaves' tree hash equalling the signed
+root - so do not simplify `WalkReport.complete` or `may_claim_absent` into a comparison of counts.
 
 The rest of this file is unchanged, because none of it is affected by there being code.
 

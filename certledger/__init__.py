@@ -34,6 +34,7 @@ from .keys import KeyRing, LogPin, UnknownLogKey, verify_sth
 from .path import Exchange, FetchFailure, FetchPath, TrustClass, Vantage
 from .receipt import Receipt
 from .transport import DirectTransport, Resolver, SystemResolver, Transport
+from .walk import Gap, GapState, LogWalk, WalkBudget, WalkReport
 
 __version__ = "0.0.1"
 
@@ -53,10 +54,13 @@ __all__ = [
     "Exchange",
     "FetchFailure",
     "FetchPath",
+    "Gap",
+    "GapState",
     "HeadRecord",
     "HeadStore",
     "KeyRing",
     "LogPin",
+    "LogWalk",
     "PeerAddressMismatch",
     "Receipt",
     "Reconciliation",
@@ -69,6 +73,8 @@ __all__ = [
     "UnknownLogKey",
     "Unreachable",
     "Vantage",
+    "WalkBudget",
+    "WalkReport",
     "__version__",
     "build_client_context",
     "capture",

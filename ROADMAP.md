@@ -1,4 +1,4 @@
-# certledger roadmap
+﻿# certledger roadmap
 
 This is the obligation-level plan for the service described in `TRUST-MODEL.md`. The
 trust model decides *why* each row exists and which adversary it closes; this table is
@@ -27,12 +27,25 @@ sends. Verify against the record rather than memory: `info('RFC9162')`,
 | `cl.ambient-trust` | Model I1 | [x] | `anchors.py`, `context.py`, `path.py` | `test_environment_is_ignored` |
 | `cl.peer-assert` | Model L1 | [x] | `transport.py`, `path.py` | `test_peer_address_is_asserted` |
 | `cl.der-fidelity` | Model I3 | [x] | `der.py` | `test_signature_uses_stored_bytes` |
-| `cl.key-pins` | RFC 9162 section 3 | [ ] | `keys` | `test_unknown_key_is_rejected` |
-| `cl.sth-verify` | RFC 9162 section 2.1.1; v1 head: 6962 section 3.5, obsolete | [ ] | `verify/tree` | `test_sth_signature_round_trip` |
-| `cl.monotonic` | RFC 9162 section 2.1.1 | [ ] | `verify/tree` | `test_smaller_tree_is_rejected` |
-| `cl.consistency` | RFC 9162 section 2.1.1 | [ ] | `verify/proofs` | `test_mstc_rejects_bad_proof` |
-| `cl.inclusion` | RFC 9162 section 2.1.2 | [ ] | `verify/proofs` | `test_mth_and_audit_path` |
-| `cl.receipts` | Model I6 | [ ] | `store/receipt` | `test_every_object_has_a_receipt` |
+| `cl.key-pins` | RFC 9162 section 3 | [x] | `keys` | `test_unknown_key_is_rejected` |
+| `cl.sth-verify` | RFC 9162 section 2.1.1; v1 head: 6962 section 3.5, obsolete | [x] | `verify/tree` | `test_sth_signature_round_trip` |
+| `cl.monotonic` | RFC 9162 section 2.1.1 | [x] | `verify/tree` | `test_smaller_tree_is_rejected` |
+| `cl.consistency` | RFC 9162 section 2.1.1 | [x] | `verify/proofs` | `test_mstc_rejects_bad_proof` |
+| `cl.inclusion` | RFC 9162 section 2.1.2 | [x] | `verify/proofs` | `test_mth_and_audit_path` |
+| `cl.receipts` | Model I6 | [x] | `store/receipt` | `test_every_object_has_a_receipt` |
+
+Phase 1 lives in two new modules: `certledger/keys.py` (the pin registry and the origin-keyed lookup)
+and `certledger/heads.py` (monotonic head store, consistency on growth, inclusion bound to an
+accepted head). Both depend on `ctspy` for the signature and Merkle layers rather than reimplementing
+them, which is the reason that library exists.
+
+Two things this does **not** claim. The shipped `keys/pins.toml` is empty: the real production keys in
+`tests/fixtures/log-pins.toml` are test material, and trust model section 8 reserves a key decision
+for a named human, so the deployment ring stays empty until one is recorded. And nothing here fetches:
+these modules verify artifacts that are handed to them, so the acquisition loop that produces those
+artifacts over an asserted path (`cl.walk-budget`, `cl.multi-path`) is still open, as is everything
+that consumes entries rather than heads (`cl.dedupe`, `cl.cag-graph`).
+
 | `cl.dedupe` | RFC 6962 section 2.1 | [ ] | `store/entries` | `test_entry_count_differs_from_cert_count` |
 | `cl.walk-budget` | Model I5, section 8 | [ ] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
 | `cl.cag-graph` | - | [ ] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |

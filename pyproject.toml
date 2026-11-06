@@ -36,6 +36,7 @@ classifiers = [
 # under this key", which is arithmetic, not a judgement.
 dependencies = [
   "asn1core",
+  "ctspy",
   "cryptography>43",
 ]
 
@@ -60,11 +61,11 @@ anchors = "certledger/anchors"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# "../asn1core" resolves the hard dependency from the sibling checkout in the portfolio
-# workspace. At release time the dependency is a version on PyPI and this entry goes away;
-# until then an installed-but-stale asn1core would be worse than a path, because the codec is
-# the thing being relied on for byte fidelity.
-pythonpath = [".", "../asn1core"]
+# "../asn1core" and "../ctspy" resolve the two hard dependencies from the sibling checkouts in the
+# portfolio workspace. At release time they are versions on PyPI and these entries go away; until
+# then an installed-but-stale copy of either would be worse than a path, because the codec and the
+# Merkle layer are the things being relied on for byte fidelity and proof verification.
+pythonpath = [".", "../asn1core", "../ctspy"]
 addopts = "-ra"
 
 [tool.coverage.run]
@@ -111,4 +112,12 @@ strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 files = ["certledger", "tests"]
-mypy_path = "../asn1core"
+mypy_path = "../asn1core:../ctspy"
+
+# The two sibling dependencies are written against their own strictness settings, not this project's
+# (`strict = true` here; ctspy allows untyped CLI helpers, for instance). Errors inside a dependency
+# are that dependency's gate to fail - reporting them here would mean certledger cannot go green
+# until someone else's style is fixed, which is a different task with a different owner.
+[[tool.mypy.overrides]]
+module = ["ctspy.*", "asn1core.*"]
+follow_imports = "silent"

@@ -1,0 +1,23 @@
+# Log signing keys this deployment trusts, and why each one is here.
+#
+# Deliberately empty, like `anchors/anchors.toml`. This file pins **CT log signing keys**
+# (RFC 9162 section 4.1 "Public Key"), which is a different trust decision from pinning a web
+# server's TLS certificate - one authenticates log artifacts, the other authenticates a transport.
+# Conflating them is how a log's key ends up trusted for TLS, or a CA's for log artifacts.
+#
+# Trust model section 8 reserves key decisions for a named human, and the reason is in section 6's
+# residual risk: a "poorly-anchored first pin". Chrome's log list is a fine *source* - it is the
+# operator's published key, bound to a log_id - but adopting it as ours is a policy decision, and an
+# automated fetch cannot make it. Until one does, there is no honest entry to write here.
+#
+# The schema, and the fields `KeyRing.load` refuses to default:
+#
+#   [[log]]
+#   log_id = "2AlVO5RPev/IFhlvlE+Fq7D4/F6HVSYPFdEucrtFSxQ="   # SHA-256 of the DER SPKI (section 4.4)
+#   description = "Google Xenon2026h2"
+#   origin = "https://ct.googleapis.com/logs/eu1/xenon2026h2/"
+#   key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."           # base64 DER SubjectPublicKeyInfo
+#   added = 2026-11-05                                        # the date of the decision, not the fetch
+#   source = "Chrome CT log list v96.2, log_list_timestamp 2026-11-05T13:36:08Z"
+#   decided_by = "name of the person or process that made the decision"
+#   reviewed_by = "name of the human who reviewed it"          # a deployment must not run without this

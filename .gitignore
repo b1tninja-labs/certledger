@@ -14,4 +14,10 @@ htmlcov/
 # session, and the anchor manifest they write is derived from them. None of it is evidence: a
 # committed throwaway key would look like a pin, and a pin is exactly the thing this repository
 # must never gain by accident.
-tests/fixtures/
+#
+# `tests/fixtures/*` rather than `tests/fixtures/` so the two files below can be re-included: they
+# are not generated output but captured evidence - the real keys and real STHs of two production
+# logs, which the pinning tests need in order to refuse a fake rather than only another fake.
+tests/fixtures/*
+!tests/fixtures/log-pins.toml
+!tests/fixtures/production-sth.json

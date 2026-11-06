@@ -25,6 +25,8 @@ from .errors import (
     PeerAddressMismatch,
     Unreachable,
 )
+from .heads import HeadRecord, HeadStore, TreeShrank
+from .keys import KeyRing, LogPin, UnknownLogKey, verify_sth
 from .path import Exchange, FetchFailure, FetchPath, TrustClass, Vantage
 from .receipt import Receipt
 from .transport import DirectTransport, Resolver, SystemResolver, Transport
@@ -41,13 +43,19 @@ __all__ = [
     "Exchange",
     "FetchFailure",
     "FetchPath",
+    "HeadRecord",
+    "HeadStore",
+    "KeyRing",
+    "LogPin",
     "PeerAddressMismatch",
     "Receipt",
     "Resolver",
     "StoredDocument",
     "SystemResolver",
     "Transport",
+    "TreeShrank",
     "TrustClass",
+    "UnknownLogKey",
     "Unreachable",
     "Vantage",
     "__version__",
@@ -55,4 +63,5 @@ __all__ = [
     "capture",
     "pem_to_der",
     "verify_over_stored",
+    "verify_sth",
 ]

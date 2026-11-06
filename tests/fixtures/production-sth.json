@@ -1,0 +1,23 @@
+{
+  "provenance": {
+    "fetched_utc": "2026-11-05T20:40:00Z",
+    "url": "https://ct.googleapis.com/logs/eu1/xenon2026h2/ct/v1/get-sth",
+    "log_description": "Google Xenon2026h2",
+    "key_source": "Chrome CT log list v96.2 (log_list_timestamp 2026-11-05T13:36:08Z), recorded in tests/fixtures/log-pins.toml",
+    "note": "Verbatim get-sth bodies, kept as evidence that the pinned key and the transcript shape agree with a running log. The matching keys live in log-pins.toml; ctspy/tests/fixtures holds the same captures with their keys inline."
+  },
+  "responses": [
+    {
+      "tree_size": 3024195456,
+      "timestamp": 1793970166342,
+      "sha256_root_hash": "f3NbYxNJZb2TI/FykqNm71aho2/6fdpl5/L/k68Ozig=",
+      "tree_head_signature": "BAMARzBFAiEAhQDC8D5LYjs1rNGVyVEfiAx4i1ZEpk5QQalh+U0wO5gCICa2aT4UGbCvY5RrfhOoDcfXAOHK9vCjV1GRPQBUrF7A"
+    },
+    {
+      "tree_size": 3024221414,
+      "timestamp": 1793971246217,
+      "sha256_root_hash": "yDNa47SdUhMHW4wRwcP/b5nUjQVrK6KBXgzqCVc9KAg=",
+      "tree_head_signature": "BAMARzBFAiEAueHgKc/Gtfr4J/V/y+RSxYm/mJq2V1j/GIgdkc3SYdoCIHJrpEfV57VOS5LHghTviEmMwQcnknF59ZJcrovIbGqG"
+    }
+  ]
+}

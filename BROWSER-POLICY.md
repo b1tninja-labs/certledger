@@ -70,9 +70,21 @@ year-old production issuance from four of the largest CAs, sitting in logs that 
 rejected logs are already gone, and v3 publishes no final tree head for `rejected` entries — only `readonly` ones
 carry one — so for the dead ones we do not even know where their trees ended.
 
-The consolation comes from the duplication measurement: cross-operator overlap ran **51-78%** between DigiCert and
-Google logs, so a lost log's certificates are largely, not wholly, present in a partner log. **Log loss is
-recoverable-partial**, and the dedup numbers are what make that a checkable claim rather than a hope.
+**Whether a lost log's certificates survive elsewhere is now measured rather than hoped, and the answer is
+per-era — which is the part that bites.** Between two *live* logs of different operators, overlap ran 51-78% in a
+2025 window and **34.06% in a June-2026 window** (`Wyvern2026h2` × `Argon2026h2`): same two operators, different
+era, so no single percentage describes the fleet. For the rejected `2026h1` generation the copies are not in a
+surviving partner at all. Over the whole common interval of a window on 2026-06-01, `DigiCert Wyvern2026h1`
+(`rejected`) shared **0 of 69** entries with `Google Argon2026h2` (live) — **≤ 4.3% at 95%**, the rule of three on
+a census rather than a sample — and 0 of 69 with its own live sibling `Wyvern2026h2`. What it *does* share is
+**91.19% with `DigiCert Sphinx2026h1`**, another `rejected` log.
+
+So that era's certificates have **one copy, kept twice, in two logs Chrome already marks `rejected`** — while the
+operator-distinct partner logs, `Google Argon2026h1` and `Xenon2026h1`, are already `404`. Chrome requires SCTs
+from **two distinct operators**, and that requirement is exactly why a certificate's witnesses live in two
+different operators' hands: when one operator deletes a generation, the other side can become the only surviving
+record. **Log loss is recoverable only where a partner log of the same era survives** — a per-era question, not a
+fleet constant, and my earlier framing that duplication makes loss broadly recoverable was too comfortable.
 
 ## 3. Provenance and permission, both already stated by the publisher
 

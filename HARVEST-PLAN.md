@@ -153,6 +153,45 @@ than the error: `BROWSER-POLICY.md` §5 shows the list carries a `final_tree_hea
 tree is what turned a misread into two findings — Mammoth matches its seal exactly, and Sabre serves **two entries
 beyond** a seal the list stamped 54 days before those entries were created.
 
+### What period each log can witness
+
+`tools/duplication_probe.py --era` asks each log for the timestamp of its first and its newest leaf — two requests
+per log, and the only honest way to state what a log covers, since `get-entries` is indexed and never timed.
+Measured at list v96.2, live logs abbreviated:
+
+| Log | State | Tree | First leaf | Newest leaf |
+| --- | --- | --- | --- | --- |
+| DigiCert Wyvern2026h1 | `rejected` | 1.22B | 2024-07-02T01:49:08Z | **2026-06-30T23:59:58Z** |
+| DigiCert Sphinx2026h1 | `rejected` | 1.10B | 2024-07-18T18:39:30Z | **2026-06-30T23:59:58Z** |
+| Sectigo Sabre2026h1 | `rejected` | 88.7M | 2024-06-26T11:44:54Z | 2025-11-11T08:06:10Z |
+| Sectigo Mammoth2026h1 | `rejected` | 65.2M | 2024-06-26T11:44:42Z | 2025-09-18T15:17:27Z |
+| Sectigo Mammoth2026h2 | `readonly` | 57.6M | 2024-06-26T11:46:31Z | 2025-09-18T15:34:02Z |
+| Sectigo Sabre2026h2 | `readonly` | 68.7M | 2024-06-26T11:46:37Z | 2025-11-11T05:01:07Z |
+| DigiCert Wyvern2026h2 | `usable` | 2.21B | 2024-07-18T18:39:30Z | live |
+| DigiCert Wyvern2027h1 | `usable` | 434.8M | 2025-09-10T10:41:55Z | live |
+| Google Argon2026h2 | `usable` | 3.49B | 2024-06-13T10:43:47Z | live |
+| Google Argon2027h1 | `usable` | 901.6M | 2025-07-31T18:09:26Z | live |
+| TrustAsia log2026a | `usable` | 3.02B | 2024-04-30T07:49:47Z | live |
+
+Three things this says that no field of the list does:
+
+- **`rejected` is not always withdrawal for cause.** Both DigiCert logs stop at *exactly*
+  2026-06-30T23:59:58Z — a handover on the half-year boundary, visible in the trees and not in prose. That answers
+  a question `BROWSER-POLICY.md` §5 had left open pending the lifecycle explainer, at least for this generation.
+- **A `readonly` timestamp is when Chrome recorded a state, not when issuance stopped.** Mammoth2026h1's last leaf
+  (15:17:27) sits two hours *before* the 17:20:00Z stamp carried by its sealed sibling, and Sabre2026h1 kept
+  issuing until 2025-11-11T08:06:10Z while Sabre2026h2's own last two entries are stamped 02:23 and 05:01 that
+  same morning. The list's clock and the log's clock are different instruments.
+- **The rejected generation's era is not orphaned.** `Wyvern2027h1` (from 2025-09-10) and `Argon2027h1` (from
+  2025-07-31) both cover the DigiCert logs' final months, so a live witness exists in time. Whether it holds the
+  *same certificates* is a content question, and it is the one that decides whether the extra 6.5B leaves enlarge
+  the archive or merely restate it.
+
+One more observation, labelled as weak: first-leaf timestamps repeat across logs — `Sphinx2026h1` and
+`Wyvern2026h2` share 2024-07-18T18:39:30Z exactly, and all four Sectigo logs begin within 115 seconds of each other
+on 2024-06-26. Identical first leaves suggest a shared submission stream at inception, but one instant is not a
+fan-out measurement, and the pairs below are what a fan-out measurement looks like.
+
 ## Deployment shape: Fargate in production, the same image locally
 
 The constraint is that a harvest task must be **restartable, idempotent, and provably what it claims**. That
@@ -337,6 +376,38 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
   rather than 33.83B. Whether it moves is an inference, not a measurement: the rejected 2026h1 leaves come from the
   same issuers adjacent in time, so they should dedup *better* than the fleet average, which is why the dedup factor
   stays an output of the harvest rather than an input to sizing.
+
+**Cross-generation duplication, measured the same afternoon** (`--at` mode). The enlarged universe only matters if
+the `rejected` logs hold certificates nobody else holds. One 60-second window on 2026-06-01, with both sides of
+every comparison covering the whole interval they share:
+
+| Comparison | Sampled | Shared | Reading |
+| --- | --- | --- | --- |
+| `Sphinx2026h1` × `Wyvern2026h1` — both `rejected`, one operator | 352 / 346 | **321 = 91.19%** | one copy, kept twice |
+| `Wyvern2026h1` × `Wyvern2026h2` — `rejected` × live, one operator | 69 / 1,484 | **0** | ≤ 4.3% at 95% |
+| `Wyvern2026h1` × `Argon2026h2` — `rejected` × live, other operator | 1,096 / 69 | **0** | ≤ 4.3% at 95% |
+| `Wyvern2026h2` × `Argon2026h2` — live × live, the control | 784 / 1,074 | **267 = 34.06%** | the detector fires |
+
+1. **The rejected leaves are not rejected certificates.** The DigiCert pair is ~91% self-duplicate, so its 2.32B
+   leaves are roughly **1.2B distinct certificates** (Sectigo's two `rejected` logs add ~0.15B leaves and probably
+   much the same story, untested). Enlarging the universe by 19% grows the spine by close to that and the DER tier
+   by a good deal less — which is the sizing answer, and it is a measurement rather than the earlier guess that
+   duplication would absorb the difference.
+2. **Those certificates are nowhere else.** Zero shared entries with the same operator's live sibling *and* zero
+   with a live Google log says the `rejected` pair is the surviving record of that era. The logs where the
+   operator-distinct SCTs of that era would sit — `Google Argon2026h1`, `Xenon2026h1` — are already `404`. Chrome's
+   two-operator rule is what produced the arrangement, so the same rule that makes a certificate provable is what
+   left one copy.
+3. **Preservation order flips.** A `rejected` log holding unique content outranks a live log that will still be
+   there next quarter, and its tree is finite and already known (1,217,972,030 and 1,100,493,968 leaves), so it is
+   a bounded job rather than an open watch. Step 2 of the sequence should take these two first.
+
+What is *not* published from that run is the aggregate it also prints (a fleet factor of 1.1751×). It is a
+property of which logs were sampled and at what rates — the same run's pairs differ by an order of magnitude — and
+reporting it as a constant would repeat the mistake this tool has already made once with a "fleet factor". The
+capture lives in `tests/fixtures/duplication-cross-generation.json` with `tests/test_duplication_capture.py`
+asserting the four facts, because the logs it measured can be deleted and the claim should not have to be re-made
+to survive.
 - **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
   DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
   now than after 40 TB exists.

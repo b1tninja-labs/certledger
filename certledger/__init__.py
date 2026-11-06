@@ -33,6 +33,15 @@ from .heads import HeadRecord, HeadStore, TreeShrank
 from .keys import KeyRing, LogPin, UnknownLogKey, verify_sth
 from .path import Exchange, FetchFailure, FetchPath, TrustClass, Vantage
 from .receipt import Receipt
+from .states import (
+    Freeze,
+    HumanDecision,
+    LogObservation,
+    PathOutcome,
+    PublicationRefused,
+    State,
+    assess,
+)
 from .transport import DirectTransport, Resolver, SystemResolver, Transport
 from .walk import Gap, GapState, LogWalk, WalkBudget, WalkReport
 
@@ -54,17 +63,23 @@ __all__ = [
     "Exchange",
     "FetchFailure",
     "FetchPath",
+    "Freeze",
     "Gap",
     "GapState",
     "HeadRecord",
     "HeadStore",
+    "HumanDecision",
     "KeyRing",
+    "LogObservation",
     "LogPin",
     "LogWalk",
+    "PathOutcome",
     "PeerAddressMismatch",
+    "PublicationRefused",
     "Receipt",
     "Reconciliation",
     "Resolver",
+    "State",
     "StoredDocument",
     "SystemResolver",
     "Transport",
@@ -76,6 +91,7 @@ __all__ = [
     "WalkBudget",
     "WalkReport",
     "__version__",
+    "assess",
     "build_client_context",
     "capture",
     "pem_to_der",

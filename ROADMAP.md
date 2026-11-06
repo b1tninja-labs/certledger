@@ -52,7 +52,7 @@ a published key signed a tree that contains them.
 | `cl.walk-budget` | Model I5, section 8 | [x] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
 | `cl.cag-graph` | - | [x] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
 | `cl.multi-path` | Model I7 | [ ] | `acquire/fanout` | `test_absence_needs_two_path_classes` |
-| `cl.states` | Model section 8 | [ ] | `store/state` | `test_divergent_is_not_publishable` |
+| `cl.states` | Model section 8 | [x] | `store/state` | `test_divergent_is_not_publishable` |
 | `cl.keyproof-consume` | keyproof PLAN, ladder rung 1 | [ ] | `verify/denylist` | `test_chain_with_listed_spki_is_flagged` |
 | `cl.dane` | RFC 6698 as updated | [ ] | `fetch/dane` | `test_impostor_endpoint_is_unauthenticated` |
 | `cl.self-transparency` | Model I9 | [ ] | `publish/checkpoints` | `test_our_checkpoint_is_mirrored` |
@@ -149,6 +149,41 @@ decision recorded in `AGENTS.md` and below is made by a named human. The heads i
 signed by throwaway keys over production leaves, because no log will sign an arbitrary prefix on demand; that
 makes the completeness *arithmetic* real and the *footing* synthetic, which is said here rather than in a
 footnote.
+
+**One phase 3 row landed early, because it is logic rather than infrastructure.** `states.py` is the section 8
+table turned into code, and it needs nothing the fetch layer has to offer: it weighs artifacts that already
+exist - accepted heads, walk reports, receipts, trust classes. The design decision is that **`assess` is the
+only way to produce a state**. There is no argument that accepts `State.VERIFIED`, and `publishable`,
+`supports_absence` and `alert` are derived rather than stored, because the way this fails in practice is not a
+crash but a reporting layer that sets the field directly and gets it wrong quietly.
+
+The precedence has two orderings that are decisions rather than facts, and each is defended in the module.
+`UNREACHABLE` outranks `UNAUTHENTICATED`: a failed handshake also means the endpoint went unvalidated, so if
+unauthenticated ranked higher, every timeout in the fleet would be reported as a possible interceptor and the
+report would stop being believed when a real one appeared. `STALE` outranks `VERIFIED` even when the content
+is corroborated by two classes, because the property at issue is currency and the only way to guarantee a
+stale tree is never presented as current is to make staleness destroy the publishable state instead of
+annotating it.
+
+Two rules cost the most to encode and are the ones with tests attached. **"Never silently downgrade"** is
+implemented as a cap, not a drop: a path that cannot prove its endpoint contributes no corroboration - so two
+paths where one is unauthenticated reach `SINGLE_PATH`, never `VERIFIED` - and it raises an alert, because
+*that* path disagreeing is what A2 looks like from inside this process, and the honest statement is "we cannot
+tell whether the log equivocated or someone intercepted us". **"A freeze survives good news"**: a divergence
+or a key change freezes publication, a later corroborated pass stays unpublished while the freeze is active,
+and lifting it takes a `HumanDecision` naming a person and a date - refused when the name is blank, the note
+too short to audit, or the timestamp has no zone. Clearing lifts the freeze and deliberately does not change
+the state, so a `DIVERGENT` observation is never rewritten afterwards.
+
+`test_a_gapped_walk_over_production_entries_supports_no_absence` composes this with the walk on the captured
+Nimbus2027 bytes: the same log, the same head, the same single path - one pass with a gap refuses the absence
+claim, the resume that closes the gap permits it. Nothing about the log changed between the two calls, only
+what has been read of it, which is the entire content of I5.
+
+What this row does **not** close: the phase 3 wiring of these states into a UI, and producing
+`UNAUTHENTICATED` from DANE or DNSSEC failure. Here `authenticated` is an input the caller sets from what the
+path itself validated; making that determination requires `namespy`, which does not exist yet. The state, and
+everything it forbids, is in place for when it does.
 
 Two rules came out of the measurement and are now load-bearing in the code. A precert entry is attributed to
 the leaf's `issuer_key_hash`, never to `chain[0]`: across 494 production precerts in five logs, 173 had a

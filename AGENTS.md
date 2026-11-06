@@ -7,6 +7,9 @@ and what it waits on; the fetch layer still waits on a human anchor decision, an
 reach the network itself. `walk.py` carries the completeness discipline in code: an unread range is recorded
 as *unfetched* and never as *absent*, and completeness is the stored leaves' tree hash equalling the signed
 root - so do not simplify `WalkReport.complete` or `may_claim_absent` into a comparison of counts.
+`states.py` holds the section 8 state machine, and `assess` is the only way to produce a state: publication is
+gated by derivation (`publishable`, `supports_absence`), never by a field a caller sets, and a freeze outlives
+every subsequent good pass until a `HumanDecision` naming a person and a date clears it.
 
 The rest of this file is unchanged, because none of it is affected by there being code.
 

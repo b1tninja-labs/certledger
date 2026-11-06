@@ -266,6 +266,21 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
   logs, which were not among the six and are where static-merge would show up if it shows up at all. The byte-level
   versus key-level trap still stands: 29 anchors are shared between certifi and this machine's store *by key* while
   all 125 fingerprints differ.
+
+  A second run, this time fetching the logs **concurrently**, reproduced the two findings that matter and killed the
+  method. Sectigo's pair shared **29.3%** (was 31.7%) — so same-operator fan-out is real and repeatable — while
+  Google's own Argon2026h2 and Argon2027h1 shared **zero** across 164 and 208 entries in a common window, exactly as
+  the two-SCTs-from-two-operators policy predicts. **Every cross-operator pair still came back `no common
+  interval`**, and the reason is now visible rather than mysterious: the logs' growth rates span five orders of
+  magnitude, so a tail of 512 leaves covers 2.7 s in DigiCert Wyvern2027h1 and 1,055 s in Sectigo Mammoth2026h2, and
+  whichever log finished its pages last has its window entirely outside the other's. Comparing logs therefore needs
+  every log seeked to **one agreed timestamp**, not to its own head — the tail method cannot be repaired by
+  concurrency alone. Measured rates from the same run, which the walk budget needs independently of that: about
+  190 leaves/s (DigiCert Wyvern2027h1), 43-48 (the two Google Argon logs), 27 (DigiCert Wyvern2026h2), 22
+  (TrustAsia log2026b), 0.49 (Sectigo Mammoth2026h2) and near zero (Sectigo Sabre2026h2, whose last 512 leaves span
+  53 days — a standby, not a log to walk). TrustAsia refused **both** of its logs at four-way concurrency after
+  four attempts each, which the tool now records as a hole rather than grinding against; that ceiling, not
+  bandwidth, is what the harvest schedule has to respect.
 - **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
   DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
   now than after 40 TB exists.

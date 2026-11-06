@@ -206,10 +206,12 @@ issuer and Authority Key Identifier of that stored copy - keying on it would spl
 several identities, which is the failure this row exists to prevent. Both are documented in
 `ctspy/docs/interop.md`, which also records the two wrong answers held before these were right.
 
-What the corpus does not settle: no entry in it embeds an SCT list, so the case where one issuance has two
-TBSCertificate spellings - with and without that extension - is untested on production bytes here.
-`has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it, so folding them stays a
-decision made against a number. A *completed* live walk remains gated on `cl.multi-path` and the
+What the corpora do not settle: no entry in the prefix corpus embeds an SCT list, and the 10 SCT-bearing
+entries in the middle-window fixture have no twin logged under a different `TBSCertificate` spelling, so
+folding one issuance's two spellings together remains untested on production bytes.
+`has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it - 0 across the prefix, 10
+across the window - so folding them stays a decision made against a number rather than a capability. A
+*completed* live walk remains gated on `cl.multi-path` and the
 anchor decision.
 
 
@@ -246,12 +248,16 @@ percent-encoded in the query string, because the `+` in one of the two arrived a
 ## Known costs
 
 One half-year Google log held about 242 million entries when measured on 2026-11-05, so
-entries and certificates are different counts by design. Per-log rate limits, the real
-cardinality of the `cA=TRUE` layer, and whether public archives cover every currently
-usable log are all unmeasured; each is a phase-2 blocker rather than a footnote, and
-`TRUST-MODEL.md` section 11 tracks them. The first two data points on the CA layer landed with
-`cl.cag-graph`: 8 of 236 entries in a verified Nimbus2027 prefix carry `cA=TRUE`, and 236 entries drew edges
-from 4 issuing keys - a ratio, not an estimate, and recorded as such. Google answers 32 entries per
+entries and certificates are different counts by design. Per-log rate limits and whether public archives
+cover every currently usable log remain unmeasured; each is a phase-2 blocker rather than a footnote, and
+`TRUST-MODEL.md` section 11 tracks them. The cardinality of the `cA=TRUE` layer is no longer one of them, and
+what it turned out to be is that the question needed a second sample. `cl.cag-graph` measured 8 CA entries and
+4 distinct issuers across a verified 236-entry Nimbus2027 prefix, recorded as "a ratio, not an estimate". A
+proved 64-entry window at the midpoint of Google's Xenon2027h1 - `tools/corpus.py --window`, held in
+`tests/fixtures/midwindow-corpus.json` - contains 0 CA entries and **20 distinct issuers**. So the 4 was a
+measurement of how a log begins, not of the CA layer, and the hedge attached to it understated how little it
+could carry. The comparison is confounded, and the fixture's own test says so rather than letting the number
+travel alone: different log, different operator, different position, 64 entries. Google answers 32 entries per
 `get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
 the walk's request count: about 7.6 million requests for one such half-year log.
 
@@ -267,12 +273,16 @@ were closed anyway.
   `tools/corpus.py` stays a script, and a script is honest about being one.
 - **Proofs for an arbitrary window of entries.** This bullet used to read "middle-window entries cannot be
   tied to a tree hash, because no deployed log serves inclusion-by-hash". That claim is retracted - asked at
-  the endpoint RFC 6962 section 4.5 defines, every log served a path that verifies. What remains true is
-  narrower and less convenient: the captured corpus does not *contain* such proofs yet, so entries in the
-  middle of a tree are still unrepresented here.
+  the endpoint RFC 6962 section 4.5 defines, every log served a path that verifies - and the corpus now acts
+  on it: `tools/corpus.py --window` proves each entry in its slice into the tree individually. What remains
+  unrepresented is the *span* rather than the kind: one 64-entry slice at the midpoint and a 236-entry prefix
+  say nothing about the hundreds of millions of positions between them, and that is a choice about capture
+  size, not a limit the deployment imposes.
 - **A persistent entry store.** `EntryStore` is in-process and fine at 236 entries, and wrong at the 242
   million a half-year log holds. Persisting it is a real decision about retention and about what may be
   republished, so it waits for `cl.aup-review` rather than guessing at storage technology now.
 - **SCT-aware deduplication.** SCT parsing lives in `ctspy`, and folding two spellings of one issuance
-  together needs a corpus entry that carries an SCT list; the captured prefix contains none.
-  `EntryStats.sct_bearing` keeps that a number to check rather than a case quietly assumed away.
+  together needs an entry carrying an SCT list *and* a twin logged under the other spelling. The middle-window
+  fixture supplies the first - 10 x509 entries with SCT lists, where the prefix has none - and no twin: all 64
+  identities there are distinct. `EntryStats.sct_bearing` keeps that a number to check rather than a case
+  quietly assumed away, and the window's test fails loudly if a future capture finally produces the collision.

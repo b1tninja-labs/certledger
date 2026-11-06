@@ -62,3 +62,16 @@ These are the ones an agent is most likely to "simplify" into a bug:
    `UNAUTHENTICATED`, which is unpublishable - it does not fall back with a log line.
 8. **Never claim "all certificates".** Unlogged issuance is invisible to CT by construction;
    the limit is stated in trust model §9 and obligation `cl.claims-discipline` protects it.
+
+## Evidence fixtures are opt-in, and they are evidence
+
+`tests/fixtures/*` is gitignored with per-file `!` re-inclusions, because the directory also holds
+throwaway keys and derived manifests that must never be committed. A new fixture is therefore **silently
+ignored until it is re-included in `.gitignore`**, and a test written against it passes locally and fails in
+a fresh clone. Add the `!` line in the same commit as the fixture, and say in the comment above the list why
+the file counts as evidence rather than build output.
+
+The distinction the list defends: a fixture is evidence when it cannot be regenerated - its bytes are bound
+to a signed tree head that no longer describes the log's current tree. `entry-corpus.json` (prefix, bound by
+a consistency proof) and `midwindow-corpus.json` (proved slice from a tree midpoint, written by
+`tools/corpus.py --window`) both qualify; anything a test can create at runtime stays ignored.

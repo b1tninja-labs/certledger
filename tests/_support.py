@@ -11,12 +11,13 @@ import datetime
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from ctspy.sth import SignedTreeHeadV1
 
-from certledger import AnchorSet, FetchPath, Receipt, TrustClass, Vantage
+from certledger import AnchorSet, FetchPath, HeadStore, KeyRing, Receipt, TrustClass, Vantage
 from certledger.transport import Resolver, Transport
 
 
@@ -47,6 +48,30 @@ def sign_v1_head(
     )
     signature = private.sign(unsigned.transcript(), ec.ECDSA(hashes.SHA256()))
     return replace(unsigned, signature=signature)
+
+
+def accepted_head(stored: dict[str, Any], origin: str, tmp_path: Path) -> tuple[HeadStore, bytes]:
+    """Pin a fixture's own key, accept the head stored beside it, and return the store with its log id.
+
+    Every test that checks a proof needs the same three steps in this order: write a pin file from the key the
+    block carries, let `verify_sth` check the signature over the stored octets, and put the head into a
+    `HeadStore` through `accept`. Going through `accept` rather than constructing a root is the point - an
+    inclusion proof has to bind to a head this store accepted, or it is a computation with no anchor.
+    """
+    head = SignedTreeHeadV1(
+        timestamp=int(stored["timestamp"]),
+        tree_size=int(stored["tree_size"]),
+        root_hash=bytes.fromhex(str(stored["root_hash"])),
+        signature=base64.b64decode(str(stored["signature"])),
+    )
+    ring = KeyRing.load(
+        write_pins(
+            tmp_path, [(str(stored["log_id"]), origin, base64.b64decode(str(stored["key_spki"])))]
+        )
+    )
+    store = HeadStore()
+    record = store.accept(head, ring, origin=origin, receipt=a_receipt("tool:corpus"))
+    return store, record.log_id
 
 
 def write_pins(directory: Path, entries: list[tuple[str, str, bytes]]) -> Path:

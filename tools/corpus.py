@@ -42,6 +42,8 @@ import hashlib
 import json
 import pathlib
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -60,10 +62,27 @@ USER_AGENT = "certledger-corpus/0 (evidence capture; independent monitor)"
 LOG_LIST = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 
-def get_json(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read())
+def get_json(url: str, *, retries: int = 3) -> dict:
+    """GET and parse, retrying only where a retry can help.
+
+    A 429 or a 5xx is a moment; a 403 is a fact about the deployment, and this tool's own callers read 403 as
+    an answer (Cloudflare refuses `get-sth-keys`, which is why `key_from_log_list` exists). Retrying that would
+    turn a documented behaviour into a slow hang, so the two are kept apart.
+    """
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in {429, 500, 502, 503, 504}:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    if last is None:  # only reachable with retries=0; a raise, not an assert, so -O keeps it
+        raise RuntimeError(f"{url}: no attempt made")
+    raise last
 
 
 def prefix(origin: str, count: int, page: int = 32) -> list[dict]:
@@ -162,6 +181,92 @@ def head_block(tree_head: ctsth.SignedTreeHeadV1, key: EcdsaKey, source: str) ->
         "key_spki": base64.b64encode(key.spki).decode(),
         "key_source": source,
     }
+
+
+def window(origin: str, start: int, count: int, page: int = 32) -> list[tuple[int, bytes, bytes]]:
+    """Entries `start` to `start+count-1` as (index, leaf, extra), paged and position-tagged.
+
+    No log answers more than 32 entries per request in practice - measured on Google's logs, and permitted by
+    RFC 9162 section 5.6 paragraph 8 - so this pages. The index travels *with* each entry rather than being
+    inferred from the order they arrive in: a short page in the middle would otherwise turn a window into an
+    unnamed set of bytes, and the whole point of this file is a claim about positions.
+    """
+    rows: list[tuple[int, bytes, bytes]] = []
+    cursor = start
+    while len(rows) < count:
+        want = min(page, count - len(rows))
+        batch = get_json(f"{origin}/ct/v1/get-entries?start={cursor}&end={cursor + want - 1}")[
+            "entries"
+        ]
+        if not batch:
+            break
+        for offset, item in enumerate(batch):
+            rows.append(
+                (
+                    cursor + offset,
+                    base64.b64decode(item["leaf_input"]),
+                    base64.b64decode(item["extra_data"]),
+                )
+            )
+        cursor += len(batch)
+    if [index for index, _, _ in rows] != list(range(start, start + len(rows))):
+        raise SystemExit(f"{origin}: entries came back non-contiguous, so this is not a window")
+    return rows[:count]
+
+
+def capture_window(out: pathlib.Path, origin: str, count: int, start: int | None) -> int:
+    """A proved slice from somewhere in the middle of a tree.
+
+    The prefix corpus answers one question and cannot answer this one: how many CAs *begin* a log, and how many
+    sit in the middle of it. Positions 0 to 235 of Nimbus2027 are the start of a half-year log, and a CA layer
+    measured there is a ratio about beginnings. This captures entries at the midpoint of a much larger tree and
+    proves each one individually with the request the earlier version of this tool believed nobody would
+    answer, so the number can be compared rather than assumed.
+
+    Every entry must come back proved. A window with holes is a different sample than the one described, and
+    selection bias inside a transparency fixture is the last thing it needs.
+    """
+    origin = origin.rstrip("/")
+    tree_head, key, source = head_and_key(origin)
+    first = start if start is not None else tree_head.tree_size // 2
+    rows = window(origin, first, count)
+    if len(rows) < count:
+        raise SystemExit(f"{origin}: asked for {count} entries at {first}, got {len(rows)}")
+
+    entries = []
+    for index, leaf, extra in rows:
+        got = inclusion_block(origin, leaf, tree_head)
+        if got is None or got["leaf_index"] != index:
+            raise SystemExit(f"{origin}: entry {index} is not proved, so the window is not written")
+        entries.append(
+            {
+                "index": index,
+                "leaf_input": base64.b64encode(leaf).decode(),
+                "extra_data": base64.b64encode(extra).decode(),
+                "identity": identity(leaf, extra).hex(),
+                "inclusion": got,
+            }
+        )
+
+    document = {
+        "captured": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+        "tool": "certledger/tools/corpus.py --window",
+        "why": "the CA layer away from position 0. The prefix corpus says how many issuers begin a tree; "
+        "this says how many appear in the middle of one, each entry proved into that tree by its own path.",
+        "transport": {
+            "verified": False,
+            "why": "no anchor decision exists yet, so TLS is not trusted; the bytes are believed because a "
+            "published key signed a tree that contains them",
+        },
+        "log": {"origin": origin, "head": head_block(tree_head, key, source)},
+        "window": {"start": first, "count": len(entries), "chosen_by": "tree_size // 2"},
+        "entries": entries,
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "midwindow-corpus.json"
+    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"wrote {path} ({path.stat().st_size} bytes): {len(entries)} proved entries at {first}")
+    return 0
 
 
 def head_from_block(stored: dict, origin: str) -> ctsth.SignedTreeHeadV1:
@@ -366,7 +471,18 @@ def main() -> int:
         action="store_true",
         help="add get-proof-by-hash paths to the existing fixture without re-capturing it",
     )
+    parser.add_argument(
+        "--window",
+        type=int,
+        metavar="COUNT",
+        help="capture COUNT proved entries from the middle of --origin and write midwindow-corpus.json",
+    )
+    parser.add_argument(
+        "--start", type=int, help="leaf index to start the window at (default: midpoint)"
+    )
     args = parser.parse_args()
+    if args.window:
+        return capture_window(args.out, args.origin, args.window, args.start)
     if args.prove_only:
         return prove_peers(args.out / "entry-corpus.json")
 

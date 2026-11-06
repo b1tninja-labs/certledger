@@ -19,23 +19,14 @@ import dataclasses
 import hashlib
 import json
 import pathlib
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import pytest
-from _support import a_receipt, write_pins
+from _support import a_receipt, accepted_head
 from ctspy import entry as ctentry
 from ctspy import merkle
-from ctspy import sth as ctspy_sth
 
-from certledger import (
-    EntryConflict,
-    EntryRecord,
-    EntryStore,
-    HeadStore,
-    KeyRing,
-    Receipt,
-    UnknownHead,
-)
+from certledger import EntryConflict, EntryRecord, EntryStore, Receipt, UnknownHead
 
 CORPUS = json.loads(
     (pathlib.Path(__file__).parent / "fixtures" / "entry-corpus.json").read_text("utf-8")
@@ -118,30 +109,6 @@ def test_entry_count_differs_from_cert_count() -> None:
         )
 
 
-def _accepted_peer_head(peer: dict[str, Any], tmp_path: pathlib.Path) -> tuple[HeadStore, bytes]:
-    """The peer log's stored head, accepted through the same gate every other head passes.
-
-    Nothing here is trusted because the fixture asserts it: the key beside the head is pinned, `verify_sth`
-    checks the signature over these octets, and the head enters the store as a bootstrap record. From that
-    point on, an inclusion proof that does not bind to the accepted root has nowhere to land.
-    """
-    stored = peer["head"]
-    head = ctspy_sth.SignedTreeHeadV1(
-        timestamp=int(stored["timestamp"]),
-        tree_size=int(stored["tree_size"]),
-        root_hash=bytes.fromhex(stored["root_hash"]),
-        signature=base64.b64decode(stored["signature"]),
-    )
-    ring = KeyRing.load(
-        write_pins(
-            tmp_path, [(stored["log_id"], peer["origin"], base64.b64decode(stored["key_spki"]))]
-        )
-    )
-    store = HeadStore()
-    record = store.accept(head, ring, origin=peer["origin"], receipt=a_receipt("tool:corpus"))
-    return store, record.log_id
-
-
 def test_a_peer_entry_is_proved_into_its_own_log_by_an_audit_path(tmp_path: pathlib.Path) -> None:
     """The cross-log half of the corpus is proved, not merely matched by position.
 
@@ -155,7 +122,7 @@ def test_a_peer_entry_is_proved_into_its_own_log_by_an_audit_path(tmp_path: path
     endpoint was asked correctly there was nothing here to check, and the row's test was synthetic.
     """
     for peer in PEERS:
-        store, log_id = _accepted_peer_head(peer, tmp_path)
+        store, log_id = accepted_head(peer["head"], peer["origin"], tmp_path)
         for entry in peer["entries"]:
             proof = entry["inclusion"]
             leaf_hash = merkle.leaf_hash(base64.b64decode(entry["leaf_input"]))
@@ -178,7 +145,7 @@ def test_a_proof_for_a_size_beyond_the_accepted_head_is_refused(tmp_path: pathli
     a production tree rather than a made-up size.
     """
     peer = PEERS[0]
-    store, log_id = _accepted_peer_head(peer, tmp_path)
+    store, log_id = accepted_head(peer["head"], peer["origin"], tmp_path)
     proof = peer["entries"][0]["inclusion"]
     leaf_hash = merkle.leaf_hash(base64.b64decode(peer["entries"][0]["leaf_input"]))
     path = tuple(bytes.fromhex(node) for node in proof["audit_path"])

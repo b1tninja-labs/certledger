@@ -22,7 +22,13 @@ htmlcov/
 # evidence rather than build output: its prefix is bound to a signed tree head by a consistency proof, so it
 # cannot be regenerated at will and a fresh clone must carry the bytes it was verified against. Anything a
 # test creates at runtime stays ignored.
+#
+# `midwindow-corpus.json` earns its place the same way: 64 entries from the middle of Google's Xenon2027h1,
+# each proved into that tree by its own audit path against the head captured beside it. The log has grown
+# since, so a later run takes a different head at a different midpoint and cannot reproduce these bytes; a
+# fresh clone has to carry the ones the proofs were checked against.
 tests/fixtures/*
 !tests/fixtures/log-pins.toml
 !tests/fixtures/production-sth.json
 !tests/fixtures/entry-corpus.json
+!tests/fixtures/midwindow-corpus.json

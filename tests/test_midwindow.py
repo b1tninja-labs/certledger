@@ -15,10 +15,16 @@ The second window is Google's Xenon2027h1, which agrees on direction (20 issuers
 comparison: it differs from the prefix in operator as well as position. Both numbers are recorded because a
 single log's midpoint is one sample, not a population; what is *not* claimed anywhere below is a rate.
 
-The windows also carry something the prefix does not: SCT lists, 23 of 64 in one and 10 of 64 in the other,
-against 0 of 236 in the prefix of the same log. That ordering is a fact about position whose *cause* is
-unestablished here, and the case folding actually needs - one issuance logged twice under different
-`TBSCertificate` spellings - is still not exhibited in any of these bytes.
+The windows also carry something the prefix does not: SCT lists. At both depths **every logged final
+certificate embeds one** - 30 of 30 x509 entries at 25%, 23 of 23 at 50%, 10 of 10 in the Google log - while
+none of the 116 x509 entries in the prefix of the same log does. So this is a step that happens somewhere
+between position 235 and 25% depth, not a drift with depth, and the third window is what distinguishes those
+two shapes. *Why* is not established here; only the shape is. What remains absent is the case folding needs -
+one issuance logged twice under different `TBSCertificate` spellings - which no sample here exhibits.
+
+Issuer cardinality, by contrast, does ramp: 4 distinct issuers at the start of Nimbus2027, 6 at 25%, 17 at
+50%. Three points on one log, so it is a description rather than a model - but it is the same log and the same
+operator at each point, which is the whole reason the second and third windows were captured.
 """
 
 from __future__ import annotations
@@ -85,18 +91,30 @@ def issuer_count(block: dict[str, Any], path_id: str) -> int:
     return len(list(CaGraph.build(store_of(block, path_id)).issuers()))
 
 
+def same_log_windows() -> list[dict[str, Any]]:
+    """Every window taken from the prefix's own log, shallowest first.
+
+    Three depths of one log is the controlled experiment: operator, log and issuance population are held
+    fixed, so anything that varies between them varies with position.
+    """
+    return sorted(
+        (w for w in WINDOWS if w["log"]["origin"] == PREFIX_ORIGIN),
+        key=lambda w: int(w["window"]["start"]),
+    )
+
+
 def same_log_window() -> dict[str, Any]:
-    """The window taken from the prefix's own log, which is the whole point of capturing two.
+    """The midpoint window from the prefix's own log, which is the cleanest single comparison.
 
     A lookup rather than an index: the comparison's validity depends on it being the *same* log, and a future
     recapture that drops that window should fail here loudly instead of quietly leaving the confounded
     cross-operator comparison as the only one.
     """
-    for window in WINDOWS:
-        if window["log"]["origin"] == PREFIX_ORIGIN:
+    for window in same_log_windows():
+        if window["window"]["chosen_by"] == "tree_size // 2":
             return window
     raise AssertionError(
-        f"no window from {PREFIX_ORIGIN}; the position claim needs the same log sampled twice, "
+        f"no midpoint window from {PREFIX_ORIGIN}; the position claim needs the same log sampled twice, "
         "so re-run tools/corpus.py --window against it rather than leaning on the other operator"
     )
 
@@ -134,17 +152,24 @@ def test_every_window_entry_is_proved_into_a_head_that_log_signed(tmp_path: path
         ), f"{origin}: a flipped audit node still verified, so nothing was being checked"
 
 
-def test_each_window_is_the_middle_of_its_tree_and_not_another_prefix() -> None:
-    """The claim of this file is position, so position is asserted rather than remembered.
+def test_each_window_starts_where_its_provenance_says_and_is_not_a_prefix() -> None:
+    """Each window's recorded start must match the rule its own `chosen_by` claims.
 
-    Each window must start at its tree's midpoint, run contiguously, and stop well short of the end: a window
-    with a hole in it, or one that reaches the tip, is a different claim than the one being made.
+    The field exists so a reader does not have to trust a bare number, so the two are compared: a midpoint
+    window sits at size // 2, an explicit-start window matches the start it says it was given. Every window
+    must also run contiguously and stop short of the tip, or "somewhere in the middle of a tree" is false.
     """
     for window in WINDOWS:
         size = int(head_of(window)["tree_size"])
-        start = int(window["window"]["start"])
-        assert window["window"]["chosen_by"] == "tree_size // 2"
-        assert start == size // 2, f"{window['log']['origin']}: start is not the midpoint it claims"
+        meta = window["window"]
+        start = int(meta["start"])
+        rule = str(meta["chosen_by"])
+        if rule == "tree_size // 2":
+            assert start == size // 2, (
+                f"{window['log']['origin']}: claims a midpoint, starts at {start}"
+            )
+        else:
+            assert rule == f"--start {start}", f"provenance {rule!r} does not match start {start}"
         assert start > 0, "a window starting at 0 is a prefix, which is the claim being contrasted"
         assert size - start > len(window["entries"]), "the window runs to the tip of the tree"
         indices = [entry["index"] for entry in window["entries"]]
@@ -172,6 +197,26 @@ def test_the_same_log_measured_at_its_middle_has_more_issuers_than_at_its_start(
     assert middle >= 2 * beginning, (
         f"the gap narrowed to {beginning} vs {middle}; 'a ratio about beginnings' is losing its force"
     )
+
+
+def test_issuer_count_ramps_with_depth_on_one_log() -> None:
+    """Three depths of the same log: 4 issuers at the start, 6 at 25% depth, 17 at 50%.
+
+    The SCT finding is a step and this one is not. Issuer cardinality keeps climbing with depth on the same
+    log and operator, which is why the third window was worth 64 more proofs: with only the prefix and the
+    midpoint it looked like one jump, and it is not. Three points describe a direction and nothing further -
+    no slope is fitted and no rate is claimed - but the ordering is what the CA-graph row needs, because it
+    says the prefix's 4 is the *lowest* value this log shows rather than a typical one.
+    """
+    depths = same_log_windows()
+    assert len(depths) >= 2, "the ramp claim needs at least two depths of the prefix's own log"
+    counts = [issuer_count(window, "tool:corpus-window") for window in depths]
+    beginning = issuer_count(PREFIX, "tool:corpus")
+    assert counts == sorted(counts), f"issuer counts are out of depth order: {counts}"
+    assert counts[0] > beginning, (
+        f"shallowest window {counts[0]} is not above the prefix {beginning}"
+    )
+    assert counts[-1] > counts[0], f"depth added no issuers at all: {counts}"
 
 
 def test_a_second_operator_window_agrees_on_the_direction_without_cleaning_it_up() -> None:
@@ -202,8 +247,12 @@ def test_the_windows_hold_the_sct_bearing_bytes_and_still_not_the_folding_case()
     `TBSCertificate` spellings - two entries sharing an identity - and every window's identity count equals its
     entry count. Asserting that is what stops "we have SCTs now" from quietly becoming "we test folding".
     """
-    assert sum(1 for r in records_of(PREFIX) if r.has_sct_extension) == 0, (
+    prefix_records = records_of(PREFIX)
+    assert sum(1 for r in prefix_records if r.has_sct_extension) == 0, (
         "the prefix now carries SCTs too, so 'the windows are the only source' is no longer the finding"
+    )
+    assert any(r.entry_type == "x509" for r in prefix_records), (
+        "the prefix holds no logged certificates at all, so 'none of them embed SCTs' would prove nothing"
     )
     for block in WINDOWS:
         records = records_of(block)
@@ -211,6 +260,14 @@ def test_the_windows_hold_the_sct_bearing_bytes_and_still_not_the_folding_case()
         assert bearing, f"{block['log']['origin']}: window lost the SCT-bearing entries"
         assert all(r.entry_type == "x509" for r in bearing), (
             "a precert carries its chain rather than an embedded SCT list, so this is not the case claimed"
+        )
+        logged = [r for r in records if r.entry_type == "x509"]
+        assert logged, (
+            f"{block['log']['origin']}: window holds no logged certificates, so the ratio is vacuous"
+        )
+        assert all(r.has_sct_extension for r in logged), (
+            f"{block['log']['origin']}: {len(bearing)} of {len(logged)} logged certificates embed SCTs, so "
+            "the step described above is no longer a step - re-measure before restating it"
         )
         assert len({r.identity for r in records}) == len(records), (
             f"{block['log']['origin']}: two entries share an identity, so the folding case may now be "

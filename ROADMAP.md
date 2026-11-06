@@ -206,13 +206,14 @@ issuer and Authority Key Identifier of that stored copy - keying on it would spl
 several identities, which is the failure this row exists to prevent. Both are documented in
 `ctspy/docs/interop.md`, which also records the two wrong answers held before these were right.
 
-What the corpora do not settle: no entry in the prefix corpus embeds an SCT list, and none of the 33
-SCT-bearing entries across the two middle windows has a twin logged under a different `TBSCertificate`
-spelling, so folding one issuance's two spellings together remains untested on production bytes.
-`has_sct_extension` records it per entry and `EntryStats.sct_bearing` counts it - 0 across a 236-entry prefix
-of Nimbus2027, 23 across 64 entries at that same log's midpoint, 10 across 64 in Xenon2027h1 - which says the
-bytes to look for are deep in a tree rather than at its start, and stops short of saying why. A *completed*
-live walk remains gated on `cl.multi-path` and the
+What the corpora do not settle: no entry in the prefix corpus embeds an SCT list, and none of the 53
+SCT-bearing entries across the three windows has a twin logged under a different `TBSCertificate` spelling, so
+folding one issuance's two spellings together remains untested on production bytes. What they *do* settle is
+the shape of that gradient, because a third window at 25% depth separates a step from a slope: below the start
+of the tree, **every logged certificate embeds SCTs** - 30 of 30 at 25%, 23 of 23 at 50%, 10 of 10 in the
+Google log - while none of the 116 logged certificates in the prefix of the same log does. The change lands
+somewhere between position 235 and 25% depth and then holds; the *why* is left unestablished rather than
+narrated. A *completed* live walk remains gated on `cl.multi-path` and the
 anchor decision.
 
 
@@ -255,7 +256,9 @@ cover every currently usable log remain unmeasured; each is a phase-2 blocker ra
 what it turned out to be is that the question needed a second sample from the same log. `cl.cag-graph` measured
 8 CA entries and 4 distinct issuers across a verified 236-entry Nimbus2027 prefix, recorded as "a ratio, not an
 estimate". `tools/corpus.py --window` then proved a 64-entry slice at the midpoint of **that same log**: 0 CA
-entries and **17 distinct issuers**. Same operator, same log, same issuance population, with position the only
+entries and **17 distinct issuers**; a third slice at 25% depth of the same log gives 6, so the count ramps
+with depth - 4 at the start, 6 at 25%, 17 at 50% - rather than jumping once, though three points on one log
+describe a direction and not a slope. Same operator, same log, same issuance population, with position the only
 thing that differs - so the 4 measured how a log begins and could not be quoted as the size of the CA layer,
 and the hedge attached to it was carrying far less than it appeared to. A second window at the midpoint of
 Google's Xenon2027h1 corroborates the direction (20 issuers) but is not the controlled comparison, because
@@ -287,6 +290,7 @@ were closed anyway.
   republished, so it waits for `cl.aup-review` rather than guessing at storage technology now.
 - **SCT-aware deduplication.** SCT parsing lives in `ctspy`, and folding two spellings of one issuance
   together needs an entry carrying an SCT list *and* a twin logged under the other spelling. The middle windows
-  supply the first - 33 x509 entries with SCT lists, where the prefix has none - and no twin: every identity in
-  both windows is distinct. `EntryStats.sct_bearing` keeps that a number to check rather than a case quietly
-  assumed away, and the window tests fail loudly if a future capture finally produces the collision.
+  supply the first - 53 logged certificates across three windows carry SCT lists, where none of the prefix's 116
+  do - and no twin: every identity in every window is distinct. `EntryStats.sct_bearing` keeps that a number to
+  check rather than a case quietly assumed away, and the window tests fail loudly if a future capture finally
+  produces the collision.

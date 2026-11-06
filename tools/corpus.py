@@ -244,10 +244,12 @@ def capture_window(out: pathlib.Path, origin: str, count: int, start: int | None
     measured there is a ratio about beginnings. This captures entries at the midpoint of a tree and proves each
     one individually with the request the earlier version of this tool believed nobody would answer.
 
-    One window per log, merged into `midwindow-corpus.json`, so capturing the prefix's *own* log adds a sample
-    that differs from the prefix in position and in nothing else. Re-capturing a log replaces that log's window
-    and leaves the others alone, because a window's bytes are bound to the head beside them and a head that has
-    since grown cannot be reproduced.
+    One window per (log, start) sample, merged into `midwindow-corpus.json`, so capturing the prefix's *own*
+    log twice at different depths isolates the only variable that matters: same operator, same log, different
+    position. `chosen_by` records how this run picked the start - the midpoint rule, or the literal --start it
+    was given - because a provenance field that claims a rule the caller overrode is worse than none.
+    Re-capturing an identical sample replaces it and leaves the others alone, because a window's bytes are
+    bound to the head beside them and a head that has since grown cannot be reproduced.
 
     Every entry must come back proved. A window with holes is a different sample than the one described, and
     selection bias inside a transparency fixture is the last thing it needs.
@@ -287,15 +289,25 @@ def capture_window(out: pathlib.Path, origin: str, count: int, start: int | None
         "why": "no anchor decision exists yet, so TLS is not trusted; the bytes are believed because a "
         "published key signed a tree that contains them",
     }
-    windows = [w for w in document.get("windows", []) if w["log"]["origin"] != origin]
+    # Keyed by the sample, not the log: the same log measured at two depths is two windows, and the second
+    # must not overwrite the first. Re-running the identical (log, start) replaces it, which is the only case
+    # where replacement is honest - the head beside those bytes has moved, so the old sample is stale.
+    rule = "tree_size // 2" if start is None else f"--start {first}"
+    windows = [
+        w
+        for w in document.get("windows", [])
+        if not (w["log"]["origin"] == origin and int(w["window"]["start"]) == first)
+    ]
     windows.append(
         {
             "log": {"origin": origin, "head": head_block(tree_head, key, source)},
-            "window": {"start": first, "count": len(entries), "chosen_by": "tree_size // 2"},
+            "window": {"start": first, "count": len(entries), "chosen_by": rule},
             "entries": entries,
         }
     )
-    document["windows"] = sorted(windows, key=lambda w: str(w["log"]["origin"]))
+    document["windows"] = sorted(
+        windows, key=lambda w: (str(w["log"]["origin"]), int(w["window"]["start"]))
+    )
     document["captured"] = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(

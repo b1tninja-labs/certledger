@@ -138,6 +138,114 @@ specifies — one contract, both consumers, and an artifact whose recorded comma
 checked at purchase rather than quoted from this document. Inbound transfer is free and requests are not the
 expensive part, so the decision turns on the resident storage class and on how much raw text is worth keeping.
 
+## Sizes, tiers, and the query path (measured 2026-11-05)
+
+Measured over 125 real DER blobs (certifi's bundle plus this workspace's fixtures — mean **1,050 bytes** each) with
+zstd, because the intuitive answer — certificates are text-ish, they will compress — is wrong, and the wrongness is
+load bearing.
+
+| Measured | Result |
+| --- | --- |
+| signature + SPKI as a share of a certificate | **median 62%** (range 28%-79%) |
+| zstd-19, one frame per certificate | **1.14×** |
+| zstd-19, all certificates as a single stream | **1.40×** |
+| zstd-19, per certificate with a trained 16 KB dictionary | **1.50×** |
+| zstd-12 on a column of SHA-256 digests | 64,000,000 → **64,001,477** |
+| spine `leaf_hash` column | **32.00 B/leaf**, irreducible |
+| spine `issuer_key_hash`, **sorted** | **0.003 B/leaf** |
+| spine `issuer_key_hash`, unsorted | **2.047 B/leaf** |
+| spine timestamp + leaf_index deltas | ~**0.000 B/leaf** |
+
+*How these were measured:* inputs were certifi's `cacert.pem` (120 blocks) plus this workspace's five DER
+fixtures; `zstd` at level 19 for the certificate rows and level 12 for the megabyte-scale columns; the spine
+columns from 2,000,000 synthetic rows, seed 20261105, 300 distinct issuer keys in 100,000-row runs, leaf hashes from
+`random.randbytes` so the column is genuinely incompressible. A CRL and a defect fixture are excluded from the
+signature-share statistic (124 of 125 parsed): the CRL fixture is the single blob `parse_certificate` refuses, and
+that is the decoder working, not a gap in the measurement.
+
+**Certificates are deduplicable, not compressible.** A median 62% of every certificate is a signature and a public
+key — random bytes by construction — so the ceiling on *distinct* certificates is about 1.5×, and per-record
+compression is the worst case at 1.14×. The savings are in layout and in not storing the same thing twice:
+**sorting the issuer-key column is worth 680×, which is more than any compressor will ever return.**
+
+**The thing that answers queries is about a terabyte.** At 33.83B leaves the spine — leaf hash, log, leaf index,
+timestamp, issuer key — is **1.08 TB**. Full DER for every leaf is **35.5 TB** before deduplication, which lands on
+this document's "order 30-40 TB resident" from an independent direction. The 190 TB figure stays wire cost.
+
+**Provability and interpretability are different tiers, and only one of them may be sampled.** RFC 9162 §2.1.2 gives
+the algorithm for checking a list of entries against a signed tree head, and it opens by naming the precondition:
+"When a client has a complete list of entries from 0 up to tree_size - 1". It also needs only
+`HASH(0x00 || entries[i])` per entry — the **leaf hashes**, not the certificates. (RFC 6962 §2.1 defines the same
+construction for the v1 logs still in service, `MTH(D_n) = HASH(0x01 || MTH(D[0:k]) || MTH(D[k:n]))`; 6962 is itself
+obsolete, superseded by 9162, so the successor is what to cite.) That makes the ~1.1 TB hash spine the artifact that
+buys coverage claims, and it is cheap enough to keep complete and hot forever. The DER is what lets anyone say
+something about a certificate's *content*, and selectiveness there is a policy decision that must be recorded in the
+artifact's coverage metadata: a store that kept every tenth certificate can answer questions about what it kept and
+nothing else. So **age-tier whole closed windows, never sample inside one** — a partial leaf-hash set cannot
+recompute a root, and the window's claim would die silently rather than fail loudly.
+
+### Tiers, with the rules that actually bind
+
+Read off AWS's own storage-class table rather than from memory — which matters, because the "140 KB minimum billable
+object size for Deep Archive" figure in circulation is not what the current table says:
+
+| Class | Minimum duration | Per-object overhead | First byte |
+| --- | --- | --- | --- |
+| Glacier Deep Archive | **180 days** | **+40 KB metadata** (32 KB at DA rate, 8 KB at Standard) | hours |
+| Glacier Flexible Retrieval | **90 days** | **+40 KB metadata** | minutes to hours |
+| Glacier Instant Retrieval | 90 days | **128 KB minimum billable object size** | milliseconds |
+| Intelligent-Tiering | — | objects **under 128 KB never auto-tier** (always Frequent rates) plus a per-object monitoring charge | tier-dependent |
+
+The binding constraint is therefore **object count, not gigabytes**, and it bites twice. Writing 33.83B one-object-
+per-leaf entries would cost roughly **$152,000 in write operations alone** at R2's published $4.50 per million, and
+40 KB of archive metadata on a 1 MB object is 4% of the object. At 1-4 GB per object both effects vanish
+(0.001%-0.004%), which turns the `<start>-<end>` segment layout above from a style choice into a requirement: a
+segment that happens to be one page is a disaster. The pack is also the **restore unit**, because the archive
+classes restore whole objects — so 1-4 GB is the granularity at which an audit reads, and the offset index carried
+in the spine is what lets a single record be pulled with an HTTP range request and nothing restored at all.
+
+**Lifecycle rules beat Intelligent-Tiering here**, precisely because the access pattern is known: harvest data is
+written once, read perhaps, never read again on schedule. IT exists for unknown patterns and charges per object to
+discover what we already decided.
+
+**Egress, not storage, is what a public artifact pays.** R2 publishes **free egress** at $0.015/GB-month Standard
+($0.01 IA, plus $0.01/GB retrieval, 30-day minimum duration); AWS charges egress per GB and its numbers render
+dynamically, so they belong in a purchase decision rather than in this document — the same reason the figures here
+are TB-months. That produces a design bar rather than a vendor choice: **a dataset nobody can mirror is not an
+artifact.** A 1.1 TB spine is mirrorable by one person over a home connection in hours; a 35.5 TB DER tier by an
+institution; a 190 TB JSON archive by nobody, which makes it private in practice whatever the licence claims.
+
+### Where Athena fits, and where squashfs does not
+
+Athena bills **$5.00 per TB scanned**, and its own pricing example confirms that partitioning, compression and
+columnar layout all reduce what is billed. Worked against the sizes above: a full spine scan is **$5.40**, a
+log-and-month slice is around **$0.01**, the whole DER tier is **$178**, and the raw 190 TB JSON would be **$950**
+per query. That makes Athena the right tool for *counting the world* — a scheduled audit re-deriving coverage
+numbers for a few dollars a month — and the wrong tool for the hot question. "Is fingerprint F in log L, and what
+did CA X issue in March" is a key-to-posting-list lookup, and a scan engine holds no index for it. So the answer
+path stays sorted columnar segments plus a sparse offset index served by range requests, and both consumers read the
+**same files** — which is what keeps the artifact shippable instead of becoming a database somebody has to operate.
+
+**squashfs is the wrong tool for the store and a good tool for the bundle.** Its image must be built whole: there is
+no cheap append, so a 33-billion-record growing dataset means rebuilding images, and its compression runs per block
+over what are, for us, small records — the 1.14× case measured above rather than the columnar one. Where it belongs
+is shipping a bounded, read-only corpus: a per-snapshot trust-anchor bundle, a conformance corpus, Android's
+one-PEM-per-file directory — one file, one checksum, mountable and greppable instead of 500,000 small files to
+unpack. Same reasoning as the pack above, opposite conclusion, because the access pattern differs.
+
+### Still unmeasured, in the order it would be worth measuring
+
+- **Log-to-log duplication**, the one input that decides the DER tier's real size. Cloudflare's static-merge counts
+  already show witness leaves outnumbering certificates. Settled cheaply by intersecting leaf hashes from two logs
+  over one bounded window. Note the trap this workspace already met once: 29 anchors are shared between certifi and
+  this machine's store **by key** while all 125 fingerprints are distinct, so byte-level and key-level
+  deduplication are different questions and the store has to say which one it means.
+- **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
+  DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
+  now than after 40 TB exists.
+- **The polite rate that is actually tolerated per operator**, which is a wall-clock constraint on 537M requests and
+  has nothing to do with storage. It stays the reason the STH journal goes first.
+
 ## Sequenced, so that "start gathering" can mean today
 
 1. **STH journal on.** Hours of work, ~0.4 MB/day, needs no anchor decision, republishes no certificate content,

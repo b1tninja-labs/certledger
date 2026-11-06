@@ -289,6 +289,59 @@ this log hold this certificate", which means an issuance question is answerable 
 from logs. And no anonymous bulk CT archive was reachable from here, so the walk's cost is not avoidable by
 downloading instead.
 
+## Captured ideas, not yet obligations
+
+Recorded here so an idea does not rot in a conversation. Nothing below has an obligation id, and none should get
+one until it has an owner and a decision attached - inventing an id is how a wish becomes fake backlog.
+
+### Notifying subscribers about certificates for their hostnames
+
+The shape people asked for: a user registers `example.com` and is told when a certificate appears in CT whose
+identifiers fall under it, subdomains included. Two observations first, one encouraging and one not.
+
+**Encouraging: the expensive part is the backfill, not the watching.** Monitoring a log means tailing past the
+head it last showed us, and the fleet moves slowly relative to its size - one `ctspy` sweep watched a head go
+from 3,024,290,326 to 3,024,290,413, which is 87 leaves across the whole round. Against a 537-million-request
+backfill (`HARVEST-PLAN.md`), the steady-state cost of *keeping* an index current is a different order of
+magnitude. A service that starts after the backfill is nearly free to run; getting to that point is the whole
+bill.
+
+**Not encouraging: this is not an empty space.** `PORTFOLIO.md` section 10 already records CertSpotter as alive
+and priced at $15, $100 and $500 a month, with the limitation that it is *domain-scoped monitoring, not an
+analysis surface*. So the demand is proven and the competition is live. What a substitute could add is the
+thing nobody else attaches to a notification: **coverage and proof.** "This certificate matched your domain, it
+is in log L at index I, here is the audit path under the head we journalled, and here are the logs we were not
+able to read this hour" is a different product from an email with a hostname in it. The CA-scoped variant is
+the one incident response actually wants - "tell me about anything issued by *these* key hashes" - which is
+exactly the eMudhra query, needs no domain semantics at all, and reuses `issuer_key_hash` as the match key.
+
+The questions to settle before this becomes anything:
+
+1. **Does a subscriber have to prove control of the domain?** This is the load-bearing one, and the feature's
+   value and its harm are the same property. CT data is public, but *aggregated, pushed notification* is a
+   discovery channel: it tells the subscriber the moment an internal hostname like `vault-db.corp.example.com`
+   gets a certificate, and it tells us - and their mail provider, and any proxy in between - that hostname too.
+   Options run from "anyone may watch any name" (CertSpotter's posture) through a DNS-01 style control challenge
+   to "watch only the registrable domain you proved". A wrong default here cannot be walked back after the first
+   person is harmed by a notification we sent them.
+2. **What does a match mean?** SANs only, or the common name too; `*.example.com` versus `example.com` versus
+   every subdomain; which public-suffix list version decides where `example.co.uk` begins; IDNA and case
+   folding. Every one of these has a defensible answer and a silent way to be wrong, and a subscription that
+   silently under-matches is worse than no subscription because the user believes they are covered.
+3. **Absence has to stay graded.** "No certificates matched your domain this week" is an absence claim over the
+   logs we actually read, so it needs the `GapState` accounting beside it - and this is the copy most likely to
+   overstate, because it is addressed to a paying customer who asked to be told. `cl.claims-discipline` applies
+   to notification text with more force than it applies to a dashboard.
+4. **One certificate, one notice.** The same certificate reaches several logs, and static-merge logs hold a leaf
+   per submission, so de-duplication has to happen on identity (`TBSCertificate` digest, per the lesson in the
+   CA-graph section) before anything is emailed.
+5. **Retention and policy.** Storing subscribers' domains and their match history, and republishing log content
+   in email, is squarely inside the question `cl.aup-review` has not answered yet.
+
+**Dependency, stated plainly:** tailing is still fetching, so this waits on the same fetch layer and anchor
+decision as everything else live. It cannot be built around `tools/corpus.py`, and pretending otherwise would
+mean shipping a monitor whose transport policy was chosen by whichever HTTP client got imported.
+
 ## Not on this list, and why
 
 Four things are deliberately absent, and each is absent for a reason that would break something else if it

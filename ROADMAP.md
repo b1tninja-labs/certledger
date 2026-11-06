@@ -268,6 +268,14 @@ hundreds of millions - and no rate is claimed from either. Google answers 32 ent
 `get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
 the walk's request count: about 7.6 million requests for one such half-year log.
 
+`INCIDENT-CT-FORENSICS.md` records what happened when a real incident — the eMudhra intermediate key
+compromise — was put to this tooling, and it settled two things that any future forensics ask has to live
+with. A v1 tree leaf commits to the log's own submission timestamp, so a leaf hash is not computable from a
+certificate: `get-proof-by-hash` proves possession of an entry you already have and can never answer "does
+this log hold this certificate", which means an issuance question is answerable only from a store and not
+from logs. And no anonymous bulk CT archive was reachable from here, so the walk's cost is not avoidable by
+downloading instead.
+
 ## Not on this list, and why
 
 Four things are deliberately absent, and each is absent for a reason that would break something else if it

@@ -108,6 +108,21 @@ The number to hold onto: **537 million requests**, of which 462 million belong t
 32 at a time. Assuming everybody caps at 32 predicts 1,057 million — twice the real figure, and the entire
 difference is one measurement per operator.
 
+**Corrected the same day, in the direction of "this is not a constant."** `ctspy/tools/page_caps.py` asked all 23
+usable logs for 16, 64, 256 and 1024 entries from one offset and recorded what came back. Entries per response
+ranged from **1 to 250**, and the spread *within* an operator exceeded the spread *between* them: Google served 6,
+22, 30 and 32 across its four logs; DigiCert served 1 on one log and 222 on another; the same log asked again ten
+minutes later returned 6 where it had returned 8. What held steady was the **response size per entry — 4,528 to
+8,200 bytes, median about 6.5 KB** — because `extra_data` carries the issuer chain. The ceiling is therefore on
+bytes, entries-per-response describes that day's entries as much as the operator's configuration, and 537M is one
+sample of a moving quantity: the same arithmetic on the later sustained pages gives **~1.6B requests**.
+
+The estimate that survived is the one that does not depend on page size at all: **~207 TB of JSON responses** at
+the measured bytes per entry, against 190 TB from the earlier route. Two measurements 9% apart, on a quantity that
+is stable precisely because it is counted in bytes. So size the walk in bytes and in the request rate operators
+tolerate, and treat the request count as the thing they ration rather than a capacity to plan against — TrustAsia
+answered `429` on two of its four probe steps at four-way concurrency.
+
 ## Deployment shape: Fargate in production, the same image locally
 
 The constraint is that a harvest task must be **restartable, idempotent, and provably what it claims**. That
@@ -235,11 +250,22 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
 
 ### Still unmeasured, in the order it would be worth measuring
 
-- **Log-to-log duplication**, the one input that decides the DER tier's real size. Cloudflare's static-merge counts
-  already show witness leaves outnumbering certificates. Settled cheaply by intersecting leaf hashes from two logs
-  over one bounded window. Note the trap this workspace already met once: 29 anchors are shared between certifi and
-  this machine's store **by key** while all 125 fingerprints are distinct, so byte-level and key-level
-  deduplication are different questions and the store has to say which one it means.
+- **Log-to-log duplication: first numbers, and they are not one number.** `ctspy/tools/duplication_probe.py`
+  sampled the tail of six logs (1,024 entries each) and joined on the entry's own bytes, not the leaf hash — which
+  differs per log by construction (RFC 6962 section 3.4 puts the log's timestamp in the leaf). **Within a log: no
+  repeats at all** — 1,024 distinct entries out of 1,024 in each of the six, so static-merge redundancy is not what
+  the DER tier is paying for in these windows. **Between logs it depends entirely on the CA**: Sectigo's
+  Mammoth2026h2 and Sabre2026h2 shared **31.7% of entries** in their common interval (325 of 1,024; 1,963 leaves
+  collapsing to 1,638 distinct, a **1.2×** deduplication), while DigiCert's two Wyvern logs shared **zero**, as did
+  DigiCert against Google Argon2027h1 (**1.0×**). That is consistent with a browser policy requiring two SCTs from
+  two *operators* — two logs of one operator buys nothing, so DigiCert does not duplicate across its own pair while
+  Sectigo does anyway. Two honest limits: the windows are seconds wide, and pairs whose spans failed to overlap
+  reported `no common interval`, which is an artifact of sampling logs sequentially rather than a fact about them.
+  So the DER tier's deduplication factor is **operator-specific and currently bounded near 1.0×–1.2×**, not a fleet
+  constant. Settling it needs the concurrent (or timestamp-seeked) version of the probe, and Cloudflare's Nimbus
+  logs, which were not among the six and are where static-merge would show up if it shows up at all. The byte-level
+  versus key-level trap still stands: 29 anchors are shared between certifi and this machine's store *by key* while
+  all 125 fingerprints differ.
 - **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
   DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
   now than after 40 TB exists.
@@ -253,7 +279,11 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
    nobody can recover.
 2. **A preservation pass over the beginnings** of the 23 answering logs: a bounded slice each, gigabytes.
 3. **The page-size survey done properly** — several observations per log rather than one per operator — so the
-   sizing rests on measurement instead of five samples.
+   sizing rests on measurement instead of five samples. **Done 2026-11-05** (`ctspy/tools/page_caps.py`, all 23
+   usable logs, four ask sizes each), and it broke the assumption above rather than confirming it: entries per
+   response ranged 1 to 250 and moved between two runs of the same log, while bytes per entry held at 4.5–8.2 KB.
+   The survey's value was to replace the request-count estimate with a byte-count estimate, not to refine the
+   former.
 4. **Enumerate the delisted logs.** The current list cannot report logs that already left it; the historical
    universe has to be reconstructed from Chromium's own history of the log list. Until then the fleet total above
    means "logs that still exist", which understates what has already been lost.

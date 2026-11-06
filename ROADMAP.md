@@ -213,8 +213,35 @@ decision made against a number. A *completed* live walk remains gated on `cl.mul
 anchor decision.
 
 
-## Known costs
+## What is left, and what is blocking it
 
+Six obligations remain open, and most of them wait on a decision or a dependency rather than on code. The
+distinction matters: an obligation blocked on a decision has to say which decision and who makes it, or it
+quietly becomes a permanent gap dressed as backlog.
+
+| Obligation | Why it is not closed | What would close it |
+| --- | --- | --- |
+| `cl.multi-path` | Needs two paths with genuinely different properties, and the second vantage point costs money. A second query through the same resolver is not an independent witness, so a test written now would be theatre. | A configured second vantage - another network, another resolver - then `acquire/fanout` separating *refused on both* from *answered differently*. |
+| `cl.dane` | DANE records live under DNS names, and `namespy` owns TLS and DNS names; a name layer built here would be a second one to keep honest. Still needs the anchor decision as well. | `namespy` exposing a DANE lookup, consumed behind the same state gate as everything else. |
+| `cl.keyproof-consume` | Nothing in the workspace produces a `keyproof` artifact: `keyproof/` is a plan directory with no package. Consuming something that does not exist fixes its shape by accident. | The artifact, then `verify/denylist` makes an assertion unusable when its SPKI hash is listed. |
+| `cl.self-transparency` | Largely wiring - `heads.py` already keeps a monotonic head store, and a checkpoint store is that discipline pointed at our own tree - but it needs somewhere to publish, which is infrastructure, not code. | Our own checkpoint served and mirrored elsewhere, with a test that a locally tampered checkpoint is caught by the mirror. |
+| `cl.aup-review` | What we may fetch and republish is a contractual question about the log-list inclusion policy. No test can answer it. | A recorded review with a date, and the fetch layer's retention behaviour written to match what it concludes. |
+| `cl.claims-discipline` | The discipline is enforced in code and tests - nothing claims "all certificates" - but the operator-facing copy has not been read against it by a person. | A copy review, recorded with who did it and when. |
+
+Two of the six wait on the workspace rather than on this project: `cl.keyproof-consume` needs `keyproof`'s
+artifact and `cl.dane` needs `namespy`. Neither should be invented ahead of its wave - writing a consumer for
+an artifact that does not exist yet decides its interface by guesswork, which is what `PORTFOLIO.md` section 7
+exists to prevent.
+
+One thing the retraction opened, which belongs here rather than in the table because it changes what the
+corpus *contains* and not any obligation's tier or dependency. `tools/corpus.py` captured prefixes only, on
+the belief that no deployed log serves an inclusion proof by hash; every log asked has now served one that
+verifies (see `ctspy/docs/interop.md`). So an entry found in a second log no longer has to stay positional
+evidence: the capture could ask `get-proof-by-hash` for it and record a proof against that log's own signed
+head, which would strengthen `cl.dedupe`'s and `cl.cag-graph`'s cross-log claims from matched positions to
+proved inclusion.
+
+## Known costs
 
 One half-year Google log held about 242 million entries when measured on 2026-11-05, so
 entries and certificates are different counts by design. Per-log rate limits, the real
@@ -225,3 +252,25 @@ usable log are all unmeasured; each is a phase-2 blocker rather than a footnote,
 from 4 issuing keys - a ratio, not an estimate, and recorded as such. Google answers 32 entries per
 `get-entries` request however many are asked for (RFC 9162 section 5.6 paragraph 8 permits this), which sets
 the walk's request count: about 7.6 million requests for one such half-year log.
+
+## Not on this list, and why
+
+Four things are deliberately absent, and each is absent for a reason that would break something else if it
+were closed anyway.
+
+- **The fetch layer** - transport policy, retries, rate-limit accounting, anchors and pins. It is missing by
+  decision, not by oversight: `walk.py` takes a `Fetcher` seam that is a function, so the anchor question
+  lands in one place instead of being answered implicitly by whichever HTTP client got imported. Answering it
+  requires a named human to record what is trusted and where the pins live; until then the capture in
+  `tools/corpus.py` stays a script, and a script is honest about being one.
+- **Proofs for an arbitrary window of entries.** This bullet used to read "middle-window entries cannot be
+  tied to a tree hash, because no deployed log serves inclusion-by-hash". That claim is retracted - asked at
+  the endpoint RFC 6962 section 4.5 defines, every log served a path that verifies. What remains true is
+  narrower and less convenient: the captured corpus does not *contain* such proofs yet, so entries in the
+  middle of a tree are still unrepresented here.
+- **A persistent entry store.** `EntryStore` is in-process and fine at 236 entries, and wrong at the 242
+  million a half-year log holds. Persisting it is a real decision about retention and about what may be
+  republished, so it waits for `cl.aup-review` rather than guessing at storage technology now.
+- **SCT-aware deduplication.** SCT parsing lives in `ctspy`, and folding two spellings of one issuance
+  together needs a corpus entry that carries an SCT list; the captured prefix contains none.
+  `EntryStats.sct_bearing` keeps that a number to check rather than a case quietly assumed away.

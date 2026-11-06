@@ -3,9 +3,13 @@
 `certledger`'s entry store needs real entries, and a fixture of entries is only as good as the reason to
 believe it. An entry is an assertion about a tree, so the corpus here is a **prefix** - entries 0 to N-1 -
 because a prefix has a Merkle Tree Hash, and a prefix's root can be tied to a signed tree head with a
-consistency proof. An arbitrary window of entries, however interesting, cannot be tied to anything: no
-deployed log serves an inclusion proof by hash, so a fixture of middle entries would be bytes with no claim
-attached to them.
+consistency proof. An arbitrary window was excluded on the belief that no deployed log serves an inclusion
+proof by hash, so middle entries would be bytes with no claim attached to them. That belief was measured
+against a path that appears in no RFC, and it is retracted: asked at RFC 6962 section 4.5's
+`get-proof-by-hash` with both of its inputs, every log in the fleet served an audit path that verified (see
+`ctspy/docs/interop.md`). A window of entries can therefore be tied to a signed head after all, which makes
+the prefix here a choice about capture cost rather than a limit the deployment imposes; adding a
+`get-proof-by-hash` pass to this tool is what would retire the choice.
 
 What the tool records, and what it declines to claim:
 
@@ -18,8 +22,9 @@ What the tool records, and what it declines to claim:
   That is the trust model working rather than a gap in it - the bytes are genuine because a pinned key signed
   a tree containing them, not because TLS said so.
 - Entries that a duplicate search turned up in a second log are kept with `verified: false`, because they are
-  positional evidence of cross-log duplication and not proved inclusion. A test that treated them as proven
-  would be reading the fixture wrong.
+  positional evidence of cross-log duplication and not proved inclusion: this tool matched them by position
+  and never asked either log for a path. That is a gap in the capture, not a limit on the deployment. A test
+  that treated them as proven would be reading the fixture wrong.
 
 Run it with `python tools/corpus.py`; it writes `tests/fixtures/entry-corpus.json`.
 """
@@ -131,7 +136,10 @@ def consistency(origin: str, first_size: int, first_root: bytes, head) -> list[b
         )
     except Exception:
         return None
-    # Deployed logs call the field "consistency"; RFC 6962 section 4.4 calls it "audit_consistency".
+    # Both specifications call this `consistency`: RFC 6962 section 4.4, RFC 9162 section 5.3. The alternate
+    # name is not a spec spelling (an earlier note here said RFC 6962 called it `audit_consistency`, which is
+    # wrong twice over - wrong field, wrong section) but it stays as tolerance for a front end, because a
+    # proof nobody can read is not made more true by being rejected for its spelling.
     nodes = body.get("consistency") or body.get("audit_consistency") or []
     proof = [base64.b64decode(node) for node in nodes]
     if merkle.verify_consistency(first_size, head.tree_size, proof, first_root, head.root_hash):

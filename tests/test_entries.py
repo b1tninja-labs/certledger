@@ -248,9 +248,11 @@ def test_the_corpus_says_which_of_it_is_proved_and_which_is_only_positional() ->
     """The fixture's own honesty field, guarded, because everything else in this file reads it.
 
     One log block is a verified prefix with a root proved consistent against a signed head; the peer blocks
-    are matched certificates from elsewhere, with no inclusion proof behind them - no deployed log will serve
-    one by hash. If that distinction were ever flattened, the tests above would start claiming more than the
-    bytes support.
+    are matched certificates from elsewhere, with no inclusion proof behind them - the capture matched them by
+    position and never asked either log for a path. It is not that logs refuse: asked at RFC 6962 section 4.5's
+    endpoint, every log in the fleet served one that verified, per `ctspy/docs/interop.md`. The gap is in this
+    fixture, not in the deployment. If that distinction were ever flattened, the tests above would start
+    claiming more than the bytes support.
     """
     assert PRIMARY["verified"] is True
     assert PRIMARY["prefix"]["consistent_with_head"] is True

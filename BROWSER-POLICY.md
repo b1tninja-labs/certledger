@@ -72,11 +72,13 @@ carry one — so for the dead ones we do not even know where their trees ended.
 
 **Whether a lost log's certificates survive elsewhere is now measured rather than hoped, and the answer is
 per-era — which is the part that bites.** Between two *live* logs of different operators, overlap ran 51-78% in a
-2025 window and **34.06% in a June-2026 window** (`Wyvern2026h2` × `Argon2026h2`): same two operators, different
-era, so no single percentage describes the fleet. For the rejected `2026h1` generation the copies are not in a
+2025 window, **34.06%** in a June-2026 window and **13.33%** in an April-2026 window (`Wyvern2026h2` ×
+`Argon2026h2` each time): the same two operators, three answers, so no single percentage describes the fleet and no
+fleet factor belongs in a publication. For the rejected `2026h1` generation the copies are not in a
 surviving partner at all. Over the whole common interval of a window on 2026-06-01, `DigiCert Wyvern2026h1`
 (`rejected`) shared **0 of 69** entries with `Google Argon2026h2` (live) — **≤ 4.3% at 95%**, the rule of three on
-a census rather than a sample — and 0 of 69 with its own live sibling `Wyvern2026h2`. What it *does* share is
+a census rather than a sample — and 0 of 69 with its own live sibling `Wyvern2026h2`, reproduced at `0 of 35`
+(≤ 8.6%) on 2026-04-15. What it *does* share is
 **91.19% with `DigiCert Sphinx2026h1`**, another `rejected` log.
 
 So that era's certificates have **one copy, kept twice, in two logs Chrome already marks `rejected`** — while the

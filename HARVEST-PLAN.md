@@ -408,6 +408,17 @@ reporting it as a constant would repeat the mistake this tool has already made o
 capture lives in `tests/fixtures/duplication-cross-generation.json` with `tests/test_duplication_capture.py`
 asserting the four facts, because the logs it measured can be deleted and the claim should not have to be re-made
 to survive.
+
+**Reproduced at a second instant, and the two outcomes there are both worth having.** The same logs on
+2026-04-15 over a 20-second window: `Wyvern2026h1` × `Wyvern2026h2` shared **nothing** again, bounded at
+**≤ 8.6% at 95%** (n = 35) — a weaker bound from a thinner sample, stated as one. The `× Argon2026h2` pair
+**declined to answer**, and correctly: Google served pages of at most 30 entries in that run, the
+120-request-per-log ceiling fired after 121 requests, the sample spanned 2.5 s, and the rejected log contributed 2
+entries to the common interval — under the census floor, so the tool printed `sample too small` rather than dress
+up a zero. Live-to-live in the same window shared **13.33%**, against 34.06% in June and 50.9% in the 2025 window:
+**cross-operator overlap runs from 13% to 51% depending on which logs and which minute**, which settles it — the
+harvest reports the pair and the window beside every figure, never a fleet factor. Both captures are pinned as
+fixtures under `ctspy/tests/fixtures/`, with the zero, the refusal, and the non-constancy each asserted offline.
 - **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
   DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
   now than after 40 TB exists.
@@ -423,7 +434,10 @@ to survive.
    **`tree_size` rather than head timestamp** as the advancement signal — closed logs keep signing fresh heads over
    dead trees (`BROWSER-POLICY.md` §5). Every day this is off is a set of heads *and a fleet membership* nobody can
    recover.
-2. **A preservation pass over the beginnings** of the 23 answering logs: a bounded slice each, gigabytes.
+2. **A preservation pass over the beginnings** of the 23 answering logs: a bounded slice each, gigabytes. Take
+   `DigiCert Sphinx2026h1` and `Wyvern2026h1` **first** — `rejected`, holding ~1.2B certificates measured to exist
+   nowhere else, with trees whose size is already known (1.10B and 1.22B leaves). A log Chrome has marked
+   `rejected` is a deletion candidate, and its sibling generation is already `404`.
 3. **The page-size survey done properly** — several observations per log rather than one per operator — so the
    sizing rests on measurement instead of five samples. **Done 2026-11-05** (`ctspy/tools/page_caps.py`, all 23
    usable logs, four ask sizes each), and it broke the assumption above rather than confirming it: entries per

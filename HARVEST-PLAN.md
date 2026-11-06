@@ -92,7 +92,12 @@ and the bytes-per-entry observed in the same responses:
 | DigiCert | 256 | 5.20 | 20.3 | 12.3 |
 | **Live fleet total** | | **33.83** | **536.9** | **190.3** |
 
-Three caveats that change what those numbers mean:
+Four caveats that change what those numbers mean:
+
+- **The fleet total is the enforcement list's fleet, and that list is 19% short.** `log_list.json` carries 26 logs;
+  Chrome's `all_logs_list.json` carries **45**, and the 19 it alone shows hold **13.63B leaves**, of which **6.52B**
+  are publicly-trusted production issuance in the rejected 2026h1 generation (15 of the 19 still answer `get-sth`).
+  Counting only usable+readonly gives 33.83B where the population is nearer **40.4B**. See `BROWSER-POLICY.md` §2.
 
 - **Cloudflare's counts are witness leaves, not certificates.** Static-merge logs add a leaf per submission, so
   one certificate submitted to several logs appears repeatedly; `ctspy/docs/interop.md` records a 6.7-billion-entry
@@ -123,24 +128,30 @@ is stable precisely because it is counted in bytes. So size the walk in bytes an
 tolerate, and treat the request count as the thing they ration rather than a capacity to plan against — TrustAsia
 answered `429` on two of its four probe steps at four-way concurrency.
 
-### Two "usable" logs have not issued in over a year
+### Two logs have stopped issuing — and the list says `readonly`, which I first misread as `usable`
 
 Asking every listed log for the timestamp of its own newest leaf — the fleet's present defined by the logs rather
 than by a clock — gives a **median head age of 0.0012 days and a spread of 414 days**, because two Sectigo logs
 have stopped:
 
-| Log | Newest leaf | Age | Tree size | Listed as |
-| --- | --- | --- | --- | --- |
-| Sectigo Mammoth2026h2 | 2025-09-18T15:34Z | **414.31 days** | 57,634,084 | usable |
-| Sectigo Sabre2026h2 | 2025-11-11T05:01Z | **360.75 days** | 68,732,793 | usable |
+| Log | Newest leaf | Age | Tree size | List state | List seal |
+| --- | --- | --- | --- | --- | --- |
+| Sectigo Mammoth2026h2 | 2025-09-18T15:34Z | **414.31 days** | 57,634,084 | `readonly` | 57,634,084 ✓ matches |
+| Sectigo Sabre2026h2 | 2025-11-11T05:01Z | **360.75 days** | 68,732,793 | `readonly` | 68,732,791 — **serves 2 more** |
 
 Every other log's newest leaf was within 40 minutes of the probe; 22 of 23 answered at all. Three consequences.
 **The live fleet is 20 logs, not 23** — "answers `get-sth`" measures availability, not issuance, and the walk
 budget should follow the logs that are actually issuing. **These two need one finite pass and no watching**: their
 trees are fixed at 126M leaves between them, about 2% of the Sectigo row in the table above, so they are cheap to
-close out entirely. And **the log list is not a coverage statement**: someone publishing from the list alone would
-describe a log as usable that has been silent for a year, which is the same class of error as reporting a gap as
-absence — the end of a log's history is a fact its tree carries and its list entry does not.
+close out entirely. And **key on `tree_size`, never on the STH timestamp**: both frozen logs were signing fresh
+heads an hour before the probe, so a staleness alarm built on head timestamps would have called them healthy.
+
+This section originally described both logs as listed `usable`. That was wrong, and the correction matters more
+than the error: `BROWSER-POLICY.md` §5 shows the list carries a `final_tree_head` per closed log, and my
+`usable_logs()` helper deliberately folds `readonly` into the fleet for interop sweeps, which is fine for asking
+"does the fleet answer" and misleading for asking "what does the list claim". Checking the seal against the served
+tree is what turned a misread into two findings — Mammoth matches its seal exactly, and Sabre serves **two entries
+beyond** a seal the list stamped 54 days before those entries were created.
 
 ## Deployment shape: Fargate in production, the same image locally
 
@@ -322,6 +333,10 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
   the fleet's 33.83B leaves are on the order of **17-21B distinct certificates** rather than 33.83B, and the DER
   tier is **~18-22 TB rather than 35.5 TB**. That is the only large saving available in the blob tier, it comes
   from deduplication rather than compression, and it is bounded above by the logs never sampled here.
+  **This estimate now needs re-running over the enlarged universe** — the ~40.4B leaves of `BROWSER-POLICY.md` §2
+  rather than 33.83B. Whether it moves is an inference, not a measurement: the rejected 2026h1 leaves come from the
+  same issuers adjacent in time, so they should dedup *better* than the fleet average, which is why the dedup factor
+  stays an output of the harvest rather than an input to sizing.
 - **Whether the spine answers the first claims.** If the question is "did CA X issue this", 1.1 TB is enough and the
   DER tier may start selective; if it is "what does this certificate say", the tier order flips. Cheaper to decide
   now than after 40 TB exists.
@@ -330,9 +345,13 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
 
 ## Sequenced, so that "start gathering" can mean today
 
-1. **STH journal on.** Hours of work, ~0.4 MB/day, needs no anchor decision, republishes no certificate content,
-   and is monitoring-only — the use the log-list policy already permits. Every day it is off is a set of heads
-   nobody can recover.
+1. **STH and log-list journal on.** Hours of work, ~0.4 MB/day of heads plus ~170 KB of lists, needs no anchor
+   decision, republishes no certificate content, and is monitoring-only — the use the log-list Acceptable Use Policy
+   names explicitly ("CT monitors and auditors"). Four documents a day: `log_list.json`, `all_logs_list.json` and
+   both 512-octet signatures, so membership is verifiable later without trusting whoever served it. Record
+   **`tree_size` rather than head timestamp** as the advancement signal — closed logs keep signing fresh heads over
+   dead trees (`BROWSER-POLICY.md` §5). Every day this is off is a set of heads *and a fleet membership* nobody can
+   recover.
 2. **A preservation pass over the beginnings** of the 23 answering logs: a bounded slice each, gigabytes.
 3. **The page-size survey done properly** — several observations per log rather than one per operator — so the
    sizing rests on measurement instead of five samples. **Done 2026-11-05** (`ctspy/tools/page_caps.py`, all 23
@@ -340,9 +359,15 @@ unpack. Same reasoning as the pack above, opposite conclusion, because the acces
    response ranged 1 to 250 and moved between two runs of the same log, while bytes per entry held at 4.5–8.2 KB.
    The survey's value was to replace the request-count estimate with a byte-count estimate, not to refine the
    former.
-4. **Enumerate the delisted logs.** The current list cannot report logs that already left it; the historical
-   universe has to be reconstructed from Chromium's own history of the log list. Until then the fleet total above
-   means "logs that still exist", which understates what has already been lost.
+4. **Enumerate the delisted logs — answered by measurement 2026-11-06, no archaeology needed.** Chrome publishes
+   `all_logs_list.json` alongside the enforcement list: 45 logs vs 26, the extra 19 holding **13.63B leaves**, with
+   **15 still answering `get-sth`** and 4 already gone (`Google Argon2026h1`, `Google Xenon2026h1`,
+   `Let's Encrypt Oak2026h1`, `Google Solera2026h1`). Six of them are the rejected 2026h1 generation carrying
+   **6.52B leaves of publicly-trusted issuance** — one year old, online today, and absent from the list every
+   browser-facing tool reads. The walk must therefore take the union of `log_list.json`, `all_logs_list.json` and v2,
+   record the state and list version each entry came from, and treat unreachable rejected logs as the loss budget
+   they now are. Journaling both lists and both signatures daily costs tens of kilobytes and is the only way a later
+   coverage claim can say what the world looked like when it was made (`BROWSER-POLICY.md` §2–§3).
 5. **Then the walk**, log by log and budget by budget, publishing coverage as it goes.
 
 ## The goal, restated against what is collectable
@@ -363,6 +388,9 @@ SHA-256 is the join between them.
 ## Unverified
 
 - Page sizes: one observation per operator, from index 0. 32 and 256 are observed caps, not proven maxima.
-- Retired-log reachability: one real retired log, already unreachable. That is a data point, not a rate.
+- Retired-log reachability: the 3 `retired` logs in v3 are all unreachable, and 4 of the 19 logs absent from the
+  enforcement list are unreachable too. Still a sample, not a rate — but the denominator is now published.
 - The 30-40 TB deduplicated figure: untested. Measuring it is the first job of the preservation pass.
-- Whether delisted-but-still-serving logs exist. Step 4 is that check, and it may find nothing or a great deal.
+- ~~Whether delisted-but-still-serving logs exist.~~ Answered: **15 of 19 still serve**, holding 13.63B leaves
+  between them (`BROWSER-POLICY.md` §2). Whether the rejected logs' certificates are already wholly present in other
+  operators' logs is not answered, and the 51-78% cross-operator overlap says the answer is "mostly, not entirely".

@@ -17,38 +17,48 @@ is **RFC 9162, Certificate Transparency Version 2.0**, published 2021-12, which 
 it - and 9162 is itself **Experimental**, not a Standard, with one erratum on file. The
 protocol this service depends on was never standardised by the IETF, which is a property
 of the design space rather than a footnote: the deployed wire format at logs today is
-version 1, and version 2 replaces signed tree heads with checkpoints and changes the TLS
-extension. Cite 9162 as the authority and 6962 only when naming what a v1 log actually
-sends. Verify against the record rather than memory: `info('RFC9162')`,
+version 1, and version 2 carries signed tree heads as a `TransItem` (RFC 9162 sections 4.5 and
+4.10) and changes the TLS extension (section 6.5). Cite 9162 as the authority and 6962 only when
+naming what a v1 log actually sends. Verify against the record rather than memory: `info('RFC9162')`,
 `errata('RFC9162')`, `read('RFC9162', view='normative')`.
 
-| Id | Spec | Status | Where | Evidence |
-|---|---|---|---|---|
-| `cl.ambient-trust` | Model I1 | [x] | `anchors.py`, `context.py`, `path.py` | `test_environment_is_ignored` |
-| `cl.peer-assert` | Model L1 | [x] | `transport.py`, `path.py` | `test_peer_address_is_asserted` |
-| `cl.der-fidelity` | Model I3 | [x] | `der.py` | `test_signature_uses_stored_bytes` |
-| `cl.key-pins` | RFC 9162 section 3 | [x] | `keys` | `test_unknown_key_is_rejected` |
-| `cl.sth-verify` | RFC 9162 section 2.1.1; v1 head: 6962 section 3.5, obsolete | [x] | `verify/tree` | `test_sth_signature_round_trip` |
-| `cl.monotonic` | RFC 9162 section 2.1.1 | [x] | `verify/tree` | `test_smaller_tree_is_rejected` |
-| `cl.consistency` | RFC 9162 section 2.1.1 | [x] | `verify/proofs` | `test_mstc_rejects_bad_proof` |
-| `cl.inclusion` | RFC 9162 section 2.1.2 | [x] | `verify/proofs` | `test_mth_and_audit_path`, and a production path bound to an accepted head in `test_a_peer_entry_is_proved_into_its_own_log_by_an_audit_path` |
-| `cl.receipts` | Model I6 | [x] | `store/receipt` | `test_every_object_has_a_receipt` |
-| `cl.dedupe` | RFC 6962 section 2.1 | [x] | `store/entries` | `test_entry_count_differs_from_cert_count` |
-| `cl.walk-budget` | Model I5, section 8 | [x] | `acquire/walk` | `test_gap_is_recorded_as_unreachable` |
-| `cl.cag-graph` | - | [x] | `store/cag` | `test_ca_layer_reconciles_with_tree_size` |
-| `cl.multi-path` | Model I7 | [ ] | `acquire/fanout` | `test_absence_needs_two_path_classes` |
-| `cl.states` | Model section 8 | [x] | `store/state` | `test_divergent_is_not_publishable` |
-| `cl.keyproof-consume` | keyproof PLAN, ladder rung 1 | [ ] | `verify/denylist` | `test_chain_with_listed_spki_is_flagged` |
-| `cl.dane` | RFC 6698 as updated | [ ] | `fetch/dane` | `test_impostor_endpoint_is_unauthenticated` |
-| `cl.self-transparency` | Model I9 | [ ] | `publish/checkpoints` | `test_our_checkpoint_is_mirrored` |
-| `cl.aup-review` | Chrome log-list AUP | [ ] | docs | legal sign-off recorded with a date |
-| `cl.claims-discipline` | Model section 9 | [ ] | docs, UI | copy review: no "all certificates" claim |
+| Id | Spec | Status | Where | Evidence | Milestone |
+|---|---|---|---|---|---|
+| `cl.ambient-trust` | Model I1 | [x] | `certledger/anchors.py`, `certledger/context.py`, `certledger/path.py` | `tests/test_ambient_trust.py::test_environment_is_ignored` | phase 0 |
+| `cl.peer-assert` | Model L1 | [x] | `certledger/transport.py`, `certledger/path.py` | `tests/test_peer_assertion.py::test_peer_address_is_asserted` | phase 0 |
+| `cl.der-fidelity` | Model I3 | [x] | `certledger/der.py` | `tests/test_der_fidelity.py::test_signature_uses_stored_bytes` | phase 0 |
+| `cl.key-pins` | RFC 9162 section 4.1 (the Public Key log parameter) | [x] | `certledger/keys.py` | `tests/test_key_pins.py::test_unknown_key_is_rejected` | phase 1 |
+| `cl.sth-verify` | RFC 9162 section 4.10; v1 head: 6962 section 3.5, obsolete | [x] | `certledger/keys.py` (`verify_sth`), `certledger/heads.py` | `tests/test_tree_heads.py::test_sth_signature_round_trip` | phase 1 |
+| `cl.monotonic` | Model I4; RFC 9162 section 2.1.4 | [x] | `certledger/heads.py` | `tests/test_tree_heads.py::test_smaller_tree_is_rejected` | phase 1 |
+| `cl.consistency` | RFC 9162 section 2.1.4.2 | [x] | `certledger/heads.py` | `tests/test_tree_heads.py::test_mstc_rejects_bad_proof` | phase 1 |
+| `cl.inclusion` | RFC 9162 section 2.1.3.2 | [x] | `certledger/heads.py` (`HeadStore.verify_inclusion`) | `tests/test_tree_heads.py::test_mth_and_audit_path`, and a production path bound to an accepted head in `tests/test_entries.py::test_a_peer_entry_is_proved_into_its_own_log_by_an_audit_path` | phase 1 |
+| `cl.receipts` | Model I6 | [x] | `certledger/receipt.py` | `tests/test_tree_heads.py::test_every_object_has_a_receipt` | phase 1 |
+| `cl.dedupe` | RFC 6962 section 2.1 | [x] | `certledger/entries.py` | `tests/test_entries.py::test_entry_count_differs_from_cert_count` | phase 2 |
+| `cl.walk-budget` | Model I5, section 8 | [x] | `certledger/walk.py` | `tests/test_walk.py::test_gap_is_recorded_as_unreachable` | phase 2 |
+| `cl.cag-graph` | Model section 10, phase 2 ("CA-layer graph"; exit test "CA-graph counts reconcile") | [x] | `certledger/cag.py` | `tests/test_ca_graph.py::test_ca_layer_reconciles_with_tree_size` | phase 2 |
+| `cl.multi-path` | Model I7 | [ ] | `certledger/fanout.py` (planned) | `tests/test_fanout.py::test_absence_needs_two_path_classes` (to be written) | phase 4 |
+| `cl.states` | Model section 8 | [x] | `certledger/states.py` | `tests/test_states.py::test_divergent_is_not_publishable` | phase 3 |
+| `cl.keyproof-consume` | keyproof PLAN, ladder rung 1 | [ ] | `certledger/denylist.py` (planned) | `tests/test_denylist.py::test_chain_with_listed_spki_is_flagged` (to be written) | keyproof rung 1 |
+| `cl.dane` | RFC 6698 as updated (by RFC 7218, 7671 and 8749) | [ ] | `certledger/dane.py` (planned) | `tests/test_dane.py::test_impostor_endpoint_is_unauthenticated` (to be written) | phase 3 |
+| `cl.self-transparency` | Model I9 | [ ] | `certledger/checkpoints.py` (planned) | `tests/test_checkpoints.py::test_our_checkpoint_is_mirrored` (to be written) | phase 4 |
+| `cl.aup-review` | Chrome log-list AUP | [ ] | docs | legal sign-off recorded with a date | before first public release |
+| `cl.claims-discipline` | Model section 9 | [ ] | docs, UI | copy review: no "all certificates" claim | before first public release |
 
 Nineteen obligations, thirteen closed with a named test, six waiting on something named beside them. The
 table used to read "18" while carrying nineteen rows, which is the sort of error a count kept in prose rather
 than derived from the rows makes by itself.
 
-Phase 1 lives in two new modules: `certledger/keys.py` (the pin registry and the origin-keyed lookup)
+The `Where` column names modules by their path in this repository; it used to name a planned layout
+(`verify/tree`, `store/cag`, `acquire/walk`, ...) that the code never adopted. A module marked
+`(planned)` and a test marked `(to be written)` do not exist yet. `Milestone` is a phase of
+`TRUST-MODEL.md` section 10, quoted from its Work and Exit test columns; `cl.self-transparency` at phase 4
+(the "mirror diff runs clean" exit test) and the two release rows are judgements. RFC section numbers in
+`Spec` were re-read from the RFC 9162 and RFC 6962 outlines through rfclib on 2026-11-07, which corrected
+four cells: `cl.key-pins` cited section 3 (Submitters), and `cl.sth-verify`, `cl.monotonic`,
+`cl.consistency` and `cl.inclusion` cited sections 2.1.1 and 2.1.2, which in RFC 9162 are the tree
+definition and verifying a head from its entries.
+
+Phase 1 landed in two modules: `certledger/keys.py` (the pin registry and the origin-keyed lookup)
 and `certledger/heads.py` (monotonic head store, consistency on growth, inclusion bound to an
 accepted head). Both depend on `ctspy` for the signature and Merkle layers rather than reimplementing
 them, which is the reason that library exists.
@@ -78,7 +88,7 @@ observation, a separate dataset with separate costs. Until then the honest descr
 "every TLS certificate that was logged, plus what has been revoked, and the delta between
 them", and `cl.claims-discipline` exists to keep the marketing from outrunning that.
 
-## Status, 2026-11-05
+## Status, 2026-11-05 (phase 1 paragraph updated 2026-11-07)
 
 **Phase 0 is done.** `cl.ambient-trust`, `cl.peer-assert` and `cl.der-fidelity` closed with the
 tests named against them: 30 tests green under `pytest`, `ruff check`, `ruff format --check` and
@@ -101,10 +111,11 @@ it exists:
   non-keep-alive response is drained, so a receipt built after `read()` records "no peer" for a
   fetch that worked perfectly.
 
-**Phase 1 is blocked on a decision, not on effort.** Its exit test needs STH and checkpoint
-structures, which `PORTFOLIO.md` section 6 assigns to `ctspy` - a Tier 2 project that does not exist
-yet. Either `ctspy` moves up, or the Merkle and transcript code is written here and later extracted.
-That is a sequencing call for the human, so it is recorded rather than assumed.
+**Phase 1 was blocked on a decision, not on effort, and the decision was taken.** Its exit test needed
+STH and checkpoint structures, which `PORTFOLIO.md` section 6 assigns to `ctspy`, then a Tier 2 project
+with no code. `PORTFOLIO.md` decision 8 moved `ctspy` up and it was built; phase 1 then closed on it, with
+`cl.key-pins`, `cl.sth-verify`, `cl.monotonic`, `cl.consistency`, `cl.inclusion` and `cl.receipts` each
+pinned by the test named in the table.
 
 **Phase 2 has started with the two rows that consume entries.** `entries.py` gives an Entry the identity
 PLAN.md specifies - SHA-256 over the TBSCertificate - and it is tested on a prefix rather than a sample: 236
@@ -372,10 +383,11 @@ were closed anyway.
 ## Board projection
 
 `py sdk-forge/sync_roadmap.py --project certledger --check` projects the obligation table onto GitHub issues,
-collected on Project V2 **#2 "Protocol SDK portfolio"**. Read through the hosted GitHub MCP server on
-2026-11-07: **6 items**, all open, all `status:unimplemented`. The table holds 19 rows and 13 of them read
-`[x]`, so six filed issues against nineteen rows is the projection working as intended rather than a gap —
-the same arithmetic `--check` reports as `0 drift`.
+collected on Project V2 **#4 "Protocol SDK portfolio"**, the only board. Read with `gh project item-list 4`
+on 2026-11-07: **6 items** from this repository, all in Backlog and all `status:unimplemented` - one per open
+row (`cl.multi-path`, `cl.keyproof-consume`, `cl.dane`, `cl.self-transparency`, `cl.aup-review`,
+`cl.claims-discipline`). The table holds 19 rows and 13 of them read `[x]`, so six filed issues against
+nineteen rows is the projection working as intended rather than a gap.
 
 Note the shape difference from the other projects: status cells here are bare `[x]` and `[ ]`, not
 back-quoted, and there is an Evidence column. Anything that counts statuses by pattern has to know that, or

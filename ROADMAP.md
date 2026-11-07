@@ -1,4 +1,4 @@
-﻿# certledger roadmap
+# certledger roadmap
 
 This is the obligation-level plan for the service described in `TRUST-MODEL.md`. The
 trust model decides *why* each row exists and which adversary it closes; this table is
@@ -368,3 +368,19 @@ were closed anyway.
   do - and no twin: every identity in every window is distinct. `EntryStats.sct_bearing` keeps that a number to
   check rather than a case quietly assumed away, and the window tests fail loudly if a future capture finally
   produces the collision.
+
+## Board projection
+
+`py sdk-forge/sync_roadmap.py --project certledger --check` projects the obligation table onto GitHub issues,
+collected on Project V2 **#2 "Protocol SDK portfolio"**. Read through the hosted GitHub MCP server on
+2026-11-07: **6 items**, all open, all `status:unimplemented`. The table holds 19 rows and 13 of them read
+`[x]`, so six filed issues against nineteen rows is the projection working as intended rather than a gap —
+the same arithmetic `--check` reports as `0 drift`.
+
+Note the shape difference from the other projects: status cells here are bare `[x]` and `[ ]`, not
+back-quoted, and there is an Evidence column. Anything that counts statuses by pattern has to know that, or
+it will read nineteen obligations as unimplemented and report drift that does not exist. That is the trap a
+counting script falls into, not the trap this matrix has.
+
+A dated snapshot, not a live count. The board is the live view; this file, and `TRUST-MODEL.md` behind it,
+are the source of truth.

@@ -427,13 +427,21 @@ fixtures under `ctspy/tests/fixtures/`, with the zero, the refusal, and the non-
 
 ## Sequenced, so that "start gathering" can mean today
 
-1. **STH and log-list journal on.** Hours of work, ~0.4 MB/day of heads plus ~170 KB of lists, needs no anchor
-   decision, republishes no certificate content, and is monitoring-only — the use the log-list Acceptable Use Policy
-   names explicitly ("CT monitors and auditors"). Four documents a day: `log_list.json`, `all_logs_list.json` and
-   both 512-octet signatures, so membership is verifiable later without trusting whoever served it. Record
-   **`tree_size` rather than head timestamp** as the advancement signal — closed logs keep signing fresh heads over
-   dead trees (`BROWSER-POLICY.md` §5). Every day this is off is a set of heads *and a fleet membership* nobody can
-   recover.
+1. **Log-list journal: built. Heads journal: still to do.** `ctspy/tools/log_list_journal.py` snapshots
+   `log_list.json`, `all_logs_list.json`, both 512-octet signatures and the published key into a date-stamped
+   directory, verifies each list as it lands and re-verifies the whole tree offline on demand — **173,779 octets a
+   day**, measured, which is the ~170 KB this section estimated. It refuses to rewrite an existing day (append-only
+   by construction), writes binary because the signature covers the exact bytes, and takes
+   `--expect-key-sha256` for the out-of-band pin; without it the manifest says `pinned: false` rather than claiming
+   authenticity it cannot have. Tamper-tested three ways: a flipped byte is caught by the recorded digest, a
+   flipped byte *plus* a rewritten manifest is caught by the signature, and a substituted key is caught only by the
+   pin (`BROWSER-POLICY.md` §3). Monitoring-only, which is the use the log-list Acceptable Use Policy names
+   explicitly ("CT monitors and auditors"). What still needs a human: where the snapshots live, how often, and
+   **where the key pin is stored** — that last one is the anchor/pin decision gating the fetch layer too.
+   Then the head journal, keyed on **`tree_size` rather than head timestamp**, because closed logs keep signing
+   fresh heads over dead trees (`BROWSER-POLICY.md` §5) and `log_states.md` tells monitors to keep watching
+   `ReadOnly` logs until they become `Retired` or `Rejected`. Every day either journal is off is a set of heads
+   *and a fleet membership* nobody can recover.
 2. **A preservation pass over the beginnings** of the 23 answering logs: a bounded slice each, gigabytes. Take
    `DigiCert Sphinx2026h1` and `Wyvern2026h1` **first** — `rejected`, holding ~1.2B certificates measured to exist
    nowhere else, with trees whose size is already known (1.10B and 1.22B leaves). A log Chrome has marked

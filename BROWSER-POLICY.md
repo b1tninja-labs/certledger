@@ -112,6 +112,22 @@ Read together these say: journal the lists ourselves, keep the signatures, treat
 a moving document rather than a reference, and keep `trustatlas` and `certledger` on the monitoring-and-auditing
 side of the line — a viewer that shows what Chrome required at a given list version, never a client that enforces.
 
+**The key has been found and the signatures verified.** `log_list_pubkey.pem` (served beside the lists, RSA-4096,
+exponent 65537, DER fingerprint `f1d8b68e50210d8e73d9a3e97f571773c52d7f28c0b1a71beee81d8562e6fd85`) validates both
+`.sig` documents over the bytes exactly as served — confirmed twice, once with `cryptography` and once with a
+stdlib `pow()` implementation of RSASSA-PKCS1-v1_5/SHA-256 (`ctspy/loglist.py`, tested offline against a captured
+snapshot in `ctspy/tests/fixtures/loglist/`). Two consequences:
+
+- **The signed bytes are the signed bytes.** Folding `\n` to `\r\n`, or dropping the trailing newline, breaks the
+  signature. On Windows a text-mode write re-translates newlines, so a journal that opens a file without `b`
+  produces snapshots that can never be verified. `tools/log_list_journal.py` writes binary everywhere and a test
+  pins the newline case.
+- **A key fetched next to the data proves consistency, not authenticity.** Verifying with a key from the same
+  origin shows a document and a signature belong together — worth a great deal across a journal's own history —
+  but a substituted key would verify its own forgery. Spotting that needs the fingerprint pinned out of band, so
+  the journal takes `--expect-key-sha256` and records `pinned: false` rather than implying more than it has.
+  **This is the anchor decision the project has been carrying: it needs a human to choose where the pin lives.**
+
 
 ## 4. What Chrome actually requires, stated exactly
 
@@ -187,9 +203,55 @@ constant: it is an active dependency, refreshed **daily**.
    `log_type: test` logs that will never be publicly trusted. A store that ingests them without a flag will produce
    "certificate issued by a trusted CA" claims that are false by construction.
 
-**Still unread, and where they matter:** the *CT Log Lifecycle Explainer* (the criteria for becoming Qualified, and
-what makes Chrome Retire a log — the difference between the h1 generation's `rejected` and a `retired` log is the
-distinction between delisted-by-plan and withdrawn-for-cause); the *Chrome CT Log Policy*; the published **log list
-schema** and signing public key (we need the key to verify a snapshot offline); Apple's CT log program, since Apple's
-"varying number" is a different shape of obligation; and CCADB's `include`/`monitor` preference mechanism, which is
-where a root stops being trusted in Firefox independently of whether its certificates remain valid.
+**Still unread, and where they matter:** the *Chrome CT Log Policy* (`log_policy.md` — the requirements placed on
+operators, and the standard a log fails to meet before Chrome Retires it); the published **log list schema**
+(`log_list_schema.json`, to know which fields are normative rather than incidental) and
+`operator_list_schema_v1.json`, an operator-list document this project has never looked at; `mmd_monitor_root.crt`,
+a certificate the same repo publishes for the MMD monitor; Apple's CT log program, since Apple's "varying number"
+is a different shape of obligation; and CCADB's `include`/`monitor` preference mechanism, which is where a root
+stops being trusted in Firefox independently of whether its certificates remain valid. The lifecycle explainer is
+**no longer unread** — see §6.
+
+## 6. The lifecycle document, and the one place the fleet breaks its contract
+
+`log_states.md` in the same repo defines the state machine
+`PENDING → QUALIFIED → USABLE → READONLY → RETIRED → REJECTED` and, unusually for this kind of page, states who is
+obliged to do what in each state. Five sentences change what can be claimed:
+
+1. **`Rejected` is the planned-expiry path, not the punishment path.** A log transitions to `Rejected` *"if all
+   certificates contained therein are expired or if it is past the end of their certificate expiry range specified
+   in their CT log application. Notably, the … transition is not used as a more severe response to a CT log's
+   compliance issues."* That is what the trees showed in §2 — both DigiCert `2026h1` logs ending at exactly
+   2026-06-30T23:59:58Z, the end of a declared range — so in a coverage claim `rejected` means *out of scope by
+   plan* and carries no implication about conduct.
+2. **`Retired` conflates misbehaviour with shutdown.** Logs become `Retired` *"if they demonstrate a serious or
+   sustained pattern of … compliance issues, **or if the log operator ceases operation** … Due to the inability
+   for Chrome to distinguish between intentional and accidental non-compliance, such issues are treated as highest
+   possible severity."* A `retired` log is not evidence of wrongdoing, and anything written about one has to say
+   that Chrome's own state machine cannot tell the two apart.
+3. **`Retired` means the data is expected to vanish.** *"Once a CT log becomes `Retired`, there are no longer any
+   expectations that it continues operation. Log operators are encouraged, **but not required**, to keep `Retired`
+   CT logs running for a time sufficient for log monitors to fully ingest the log."* That clause is the loss budget
+   in one sentence — and it is why all three `retired` logs in the enforcement list were already unreachable when
+   `HARVEST-PLAN.md` probed them. It is also a promise a monitor can only keep by ingesting early.
+4. **A `ReadOnly` log publishes a size it promises not to exceed**, *"to signal that this log should not grow past
+   this point. To help ensure this behavior, CT monitors should continue monitoring `ReadOnly` logs until they
+   become `Retired` or `Rejected`."* Two obligations land on us: keep watching closed logs, which is the
+   head-advancement watch rule `HARVEST-PLAN.md` derived on its own, and treat the published number as a bound.
+5. **The 70-day timeout is the mechanism, not just the safety valve.** A `Qualified` log becomes `Usable` once
+   every enforcing client knows about it — *"either by Chrome clients updating … or by older clients becoming 10 or
+   more weeks out-of-date and thus disabling CT enforcement"* — which is §4's window seen from the other side.
+   `Usable` itself *"is not a state that is specifically recognized by Chrome clients and is functionally equivalent
+   to `Qualified` and `ReadOnly`."*
+
+**One measurement breaks the contract in point 4.** Sectigo Sabre2026h2 is `readonly` with a published final tree
+size of **68,732,791** and is serving **68,732,793**; the two extra entries carry timestamps
+**2025-11-11T02:23:18Z** and **05:01:07Z**, about **54 days after** the list stamped that log `readonly`. Either the
+log issued SCTs after asserting it would stop, or the list's timestamp records when Chrome noted the change rather
+than when it took effect — and the other sealed log points the second way: `Mammoth2026h2`'s own last leaf is
+2025-09-18T15:34:02Z, 1h46m *before* the 17:20:00Z `readonly` stamp it shares with Sabre, and its tree matches its
+seal exactly.
+That distinction cannot be settled from outside, and it does not change the observable: **a published bound that
+the served tree exceeds is exactly what a monitor exists to notice.** So the watch rule is not "trust the seal" but
+"compare the seal against the head every day and keep the record of the disagreement" — which is what
+`tools/log_list_journal.py` and a head journal together make cheap.

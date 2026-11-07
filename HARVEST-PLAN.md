@@ -92,7 +92,15 @@ and the bytes-per-entry observed in the same responses:
 | DigiCert | 256 | 5.20 | 20.3 | 12.3 |
 | **Live fleet total** | | **33.83** | **536.9** | **190.3** |
 
-Four caveats that change what those numbers mean:
+Five caveats that change what those numbers mean:
+
+- **The universe roughly doubled the same afternoon, and the table above is now known to be half of it.** Every
+  count here reads the list's `logs` array. `log_list_schema.json` requires operators to carry a second array,
+  `tiled_logs` — the Static CT API — holding **109 entries**, of which the 93 that answered carry **28.67B
+  production leaves** reachable today (14.05B in `usable`, 9.09B in logs with no state at all, 5.09B `rejected`),
+  and four operators (Microsec, GoDaddy, HARICA, SwissSign) run **no RFC 6962 log whatsoever**. Adding it gives
+  **~69B leaves**, with cross-protocol duplication unmeasured, so the spine and DER figures below are re-derivation
+  candidates, not constants to scale. See `BROWSER-POLICY.md` §7.
 
 - **The fleet total is the enforcement list's fleet, and that list is 19% short.** `log_list.json` carries 26 logs;
   Chrome's `all_logs_list.json` carries **45**, and the 19 it alone shows hold **13.63B leaves**, of which **6.52B**
@@ -400,7 +408,10 @@ every comparison covering the whole interval they share:
    left one copy.
 3. **Preservation order flips.** A `rejected` log holding unique content outranks a live log that will still be
    there next quarter, and its tree is finite and already known (1,217,972,030 and 1,100,493,968 leaves), so it is
-   a bounded job rather than an open watch. Step 2 of the sequence should take these two first.
+   a bounded job rather than an open watch. Step 2 of the sequence should take these two first. The tiled fleet has
+   the same shape and is bigger: IPng's `rejected` Gouda2026h1 and Halloumi2026h1 were serving **1.55B and 1.47B
+   leaves** when measured, and Google's state-less `CoachAndHorses2026h2` carries **4.67B** — logs no list claims
+   any obligation about, and which a `logs`-only harvest would never have noticed.
 
 What is *not* published from that run is the aggregate it also prints (a fleet factor of 1.1751×). It is a
 property of which logs were sampled and at what rates — the same run's pairs differ by an order of magnitude — and
@@ -440,8 +451,10 @@ fixtures under `ctspy/tests/fixtures/`, with the zero, the refusal, and the non-
    **where the key pin is stored** — that last one is the anchor/pin decision gating the fetch layer too.
    Then the head journal, keyed on **`tree_size` rather than head timestamp**, because closed logs keep signing
    fresh heads over dead trees (`BROWSER-POLICY.md` §5) and `log_states.md` tells monitors to keep watching
-   `ReadOnly` logs until they become `Retired` or `Rejected`. Every day either journal is off is a set of heads
-   *and a fleet membership* nobody can recover.
+   `ReadOnly` logs until they become `Retired` or `Rejected`. **Both kinds of log need headling**: the `logs`
+   array via `ct/v1/get-sth`, and the 109 `tiled_logs` via `GET <monitoring prefix>/checkpoint`, whose format puts
+   origin, tree size and root hash on separate lines and may carry a `grease.invalid` provenance line to be
+   ignored. Every day either journal is off is a set of heads *and a fleet membership* nobody can recover.
 2. **A preservation pass over the beginnings** of the 23 answering logs: a bounded slice each, gigabytes. Take
    `DigiCert Sphinx2026h1` and `Wyvern2026h1` **first** — `rejected`, holding ~1.2B certificates measured to exist
    nowhere else, with trees whose size is already known (1.10B and 1.22B leaves). A log Chrome has marked
@@ -461,7 +474,13 @@ fixtures under `ctspy/tests/fixtures/`, with the zero, the refusal, and the non-
    record the state and list version each entry came from, and treat unreachable rejected logs as the loss budget
    they now are. Journaling both lists and both signatures daily costs tens of kilobytes and is the only way a later
    coverage claim can say what the world looked like when it was made (`BROWSER-POLICY.md` §2–§3).
-5. **Then the walk**, log by log and budget by budget, publishing coverage as it goes.
+5. **Then the walk**, log by log and budget by budget, publishing coverage as it goes. Two read paths, not one:
+   RFC 6962's `get-entries` for the `logs` array, and the Static CT API for `tiled_logs` — checkpoint at
+   `<monitoring prefix>/checkpoint`, data tiles at `tile/data/<N>[.p/<W>]` (gzip may arrive unasked, so clients
+   must accept it), issuers at `issuer/<fingerprint>`. The tiled walk is the larger half of the population and
+   `ctspy` already ships the pieces it needs (`SignedTreeHeadV2`, `tiles`), but nothing here has fetched a tile
+   yet, so the tiled tier's compression and dedup numbers are entirely unmeasured. Note also that checkpoints
+   carry `grease.invalid` signatures on production logs: a reader must ignore unknown provenance keys.
 
 ## The goal, restated against what is collectable
 

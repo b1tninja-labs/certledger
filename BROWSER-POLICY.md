@@ -50,9 +50,11 @@ Measured at list version **96.2**:
 
 Two things fall out before we get to the number. The documentation and the data disagree on state names: the page
 says `log_list.json` holds Qualified/Usable/Retired, while v3 publishes usable/readonly/retired and never
-`qualified` — which appears only in v2. And **v2 and v3 disagree about the fleet** (47 usable vs 21; 97 logs vs 26),
-with no v2 log absent from a v3 document, so the difference is membership semantics rather than staleness. A client
-reading the wrong schema does not fail; it reports a different fleet.
+`qualified` — which appears only in v2. **That reading is scoped to one array and §7 shows where it breaks.**
+And **v2 and v3 disagree about the fleet** (47 usable vs 21; 97 logs vs 26), with no v2 log absent from a v3
+document, so the difference is membership semantics rather than staleness. A client reading the wrong schema does
+not fail; it reports a different fleet. Everything counted in this section is the `logs` array, which turns out to
+be about half the world.
 
 **The number.** The 19 logs present in `all_logs_list.json` and absent from `log_list.json` carry **13.63 billion
 leaves**, and **15 of 19 still answer `get-sth`** (probed individually, 2-way concurrency):
@@ -255,3 +257,53 @@ That distinction cannot be settled from outside, and it does not change the obse
 the served tree exceeds is exactly what a monitor exists to notice.** So the watch rule is not "trust the seal" but
 "compare the seal against the head every day and keep the record of the disagreement" — which is what
 `tools/log_list_journal.py` and a head journal together make cheap.
+
+## 7. The list has two arrays, and I had been reading one of them
+
+`log_list_schema.json` requires each operator to carry **both** `logs` (RFC 6962, with `url`) and **`tiled_logs`**
+(the Static CT API, with `submission_url` and `monitoring_url` and no `url`). Every count in §§1-6 above comes from
+`logs` alone.
+
+| Array | `log_list.json` | `all_logs_list.json` | states seen |
+| --- | --- | --- | --- |
+| `logs` | 26 | 45 | usable, readonly, retired, rejected, none |
+| `tiled_logs` | **63** | **109** | usable 22, **qualified 41**, pending 4, rejected 5, none 37 |
+
+Four operators — **Microsec, GoDaddy, HARICA and SwissSign** — run **no RFC 6962 log at all**. They exist in the
+list only as tiled logs, so a fleet assembled from `logs` does not merely undercount them: it reports that they are
+not there. `qualified` and `pending` are ordinary in this array, which is why §2's "v3 never says `qualified`" had
+to be scoped to the array it was read from.
+
+Measured the same afternoon by fetching each tiled log's `<monitoring prefix>/checkpoint` — 93 of 109 answered, the
+rest returned 404/403/429 or timed out:
+
+| State | Logs answering | Leaves |
+| --- | --- | --- |
+| `usable` | 22 | **14.05B** |
+| no state | 13 production | 9.09B |
+| `rejected` | 5 | 5.09B |
+| `qualified` | 32 | 0.44B |
+| **production total** | | **28.67B** |
+| `log_type: test`, excluded | 21 | 3.77B |
+
+The largest single tiled log measured is `Google CoachAndHorses2026h2` at **4.67B leaves with no state in either
+list**; `Google Arche2026h1` is 2.87B the same way, and IPng's `rejected` Gouda2026h1 and Halloumi2026h1 hold
+1.55B and 1.47B and are still serving.
+
+**What that does to the sizing.** The `logs`-array universe of §2 was ~40.4B leaves. Add the reachable production
+tiled fleet's 28.67B and the universe is **~69B leaves — roughly double** what `HARVEST-PLAN.md` sized on. The
+caveats carry over and one is new: reachable, not distinct; a floor, since 16 tiled logs did not answer; and
+**cross-protocol duplication is unmeasured**, so nobody can yet say how many of those 28.67B leaves are
+certificates already witnessed in an RFC 6962 log. With the 13-51% cross-operator spread of §2 as the only guide,
+the honest position is that the spine and DER figures move by up to about 2× and have to be re-derived rather than
+scaled.
+
+**Two probes I got wrong before this one, recorded because they were the tempting findings.** I first fetched
+`<monitoring>/tile/heads/master` — a path I assumed rather than looked up — and got 404 from Google and most
+others, which would have been written up as "the tiled fleet is not serving". The specification serves the head at
+**`<monitoring prefix>/checkpoint`**; with the right path Google's ParcelYard2026h2 answers with 1.64B leaves. Then
+I parsed the checkpoint as `size<space>hash` on one line and reported **0.000B reachable for all 109**, because the
+format puts origin, tree size and root hash on **separate lines**. A third trap a parser has to survive: Let's
+Encrypt and IPng include a `grease.invalid` provenance line — a deliberately bogus signature — so a checkpoint
+reader must ignore keys it does not recognise rather than reject the document. Both failure modes produced a
+clean, quotable, false result; the numbers above are from the third attempt.

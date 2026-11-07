@@ -325,6 +325,39 @@ is shipping a bounded, read-only corpus: a per-snapshot trust-anchor bundle, a c
 one-PEM-per-file directory — one file, one checksum, mountable and greppable instead of 500,000 small files to
 unpack. Same reasoning as the pack above, opposite conclusion, because the access pattern differs.
 
+### The static (tiled) tier: what a tile costs, and what operators publish (measured 2026-11-06)
+
+Everything above prices the harvest in RFC 6962 `get-entries` bytes, because that was the only read path measured.
+The `tiled_logs` array is read differently — a `checkpoint`, then `tile/data/<N>` — and both the byte cost and the
+reachability turn out to be unlike the submission path. `ctspy/tools/tile_probe.py` takes these numbers.
+
+- **A data tile holds 256 entries and costs 1,251.23 bytes per entry.** Tile 999 of Google ParcelYard2026h2: 320,315
+  octets, 256 entries, 256 distinct keys, 512 issuer fingerprints, all `x509`, our own gzip-9 1.92×. Against the
+  4.5–8.2 KB per entry measured for `get-entries`, the static tier carries an entry in **roughly a fifth to a
+  seventh of the bytes** — a `TileLeaf` stores no SCT signature and replaces the chain with 32-byte SHA-256
+  fingerprints, keeping only the certificate (or TBSCertificate) itself.
+- **So the DER tier does not double again.** Tiled logs are a cheaper transcript of the same content, not a second
+  copy of it at equal cost. The 5× is one tile of one operator's log, not a fleet constant.
+- **Format, from the bytes rather than the prose:** a data tile is a *bare sequence* of `TileLeaf` — no TranscriptItem
+  framing, no per-entry length. The first byte of a real tile is `0x00`, the high byte of a uint64 timestamp, where a
+  Comet-framed item would begin `0x06`.
+- **What operators publish is the decision-grade finding.** ParcelYard2026h2 serves tiles **100 through 999 only**:
+  indices 0, 1, 10, 1000 and 6,419,231 all answer 404 through the published host, while the same log's checkpoint
+  claims **1,643,345,996** entries. About **0.016%** of that tree is published as tiles. Let's Encrypt Willow2026h2
+  serves its checkpoint (1,026,703,383 entries, four signatures) and answers **403 for every tile**, with or without a
+  `Range` header. Neither of the two operators tried can be harvested from the beginning over the static read path —
+  one publishes a slice, the other refuses — so a tiled-log leaf count is a statement about the *tree*, not about what
+  a monitor can fetch.
+- **A 200 is not a tile.** `https://<bucket>.prod.certificate.transparency.goog/tile/data/<N>` returns **200 with
+  `text/html`, 39,531 bytes of Google boilerplate, for every path** — including indices that cannot exist. The
+  `https://storage.googleapis.com/<bucket>` form Chrome publishes in `monitoring_url` answers a real GCS XML 404.
+  Any harvester that trusts status codes alone will compress a marketing page into its transcript: require
+  `application/octet-stream`, and treat a 200 without it as absent.
+- **Still unmeasured here:** the frontier for the other 61 tiled logs (is Google's window retention or a partial
+  mirror?); cross-protocol duplication between a tile and an RFC 6962 window at the same instant, which needs the
+  timestamp-window seek that is no longer in the tree; and the partial-tail form `tile/data/<N>.p/<W>`, which is what
+  a monitor must fetch to verify the newest entries.
+
 ### Still unmeasured, in the order it would be worth measuring
 
 - **Log-to-log duplication: first numbers, and they are not one number.** `ctspy/tools/duplication_probe.py`

@@ -13,6 +13,21 @@ every subsequent good pass until a `HumanDecision` naming a person and a date cl
 
 The rest of this file is unchanged, because none of it is affected by there being code.
 
+## Finding work
+
+If the person gave you a task, do that task.
+
+If you arrived with nothing to do, run this from this directory:
+
+    python ../sdk-forge/loop.py pickup --who <your name> --project certledger
+
+Its output is your assignment: one row, already claimed for you, with what to build, the commands that prove
+it and the ways to end it. The board decides the order of work, so the row it gives you is the row to work,
+even if it is in another project. `NO WORK` is a real answer: ask the person what to work on.
+
+Without the workspace beside this repository, read `.forge/packet.md` if it exists. If it does not, ask what
+to work on.
+
 ## Read in this order
 
 1. `TRUST-MODEL.md` - adversaries, what each control layer defeats, and what it explicitly
